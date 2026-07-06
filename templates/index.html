@@ -821,15 +821,21 @@ function _taskHTML(n) {
         onkeydown="bulletTyping(event, this)"
         onfocus="initBullet(this)"></textarea>
     </div>
-    <div class="form-row" style="margin-bottom:0;">
-      <div class="form-group">
-        <label>Links (optional, comma-separated)</label>
-        <input type="text" id="lk-${n}" placeholder="https://app.example.com">
-      </div>
-      <div class="form-group">
-        <label>Additional Notes (optional)</label>
-        <input type="text" id="nt-${n}" placeholder="Any special note for manager">
-      </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Links <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional, comma-separated)</span></label>
+      <input type="text" id="lk-${n}" placeholder="https://app.example.com">
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Tomorrow's Task <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <textarea id="nt-${n}" placeholder="- Continue integration testing&#10;- Fix pending UI issues"
+        onkeydown="bulletTyping(event, this)"
+        onfocus="initBullet(this)" style="min-height:70px;"></textarea>
+    </div>
+    <div class="form-group" style="margin-bottom:0;">
+      <label>Questions <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <textarea id="qu-${n}" placeholder="- Any blockers to discuss?&#10;- Need clarification on scope?"
+        onkeydown="bulletTyping(event, this)"
+        onfocus="initBullet(this)" style="min-height:70px;"></textarea>
     </div>`;
 }
 
@@ -964,9 +970,10 @@ function collectForm() {
       ticket,
       description: (document.getElementById('ds-'+n)?.value || '').trim(),
       status: document.getElementById('st-'+n)?.value || 'In Progress',
-      hours: (document.getElementById('hr-'+n)?.value || '').trim() || 'N/A',
-      links: (document.getElementById('lk-'+n)?.value || '').trim(),
-      notes: (document.getElementById('nt-'+n)?.value || '').trim()
+      hours:         (document.getElementById('hr-'+n)?.value || '').trim() || 'N/A',
+      links:         (document.getElementById('lk-'+n)?.value || '').trim(),
+      tomorrow_task: (document.getElementById('nt-'+n)?.value || '').trim(),
+      questions:     (document.getElementById('qu-'+n)?.value || '').trim()
     });
   });
 

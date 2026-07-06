@@ -535,7 +535,8 @@ def build_email_html(work_date, form_data, llm_result, user_email):
 <p><b>QA/testing done:</b></p><ul>{li(ts.get('qa_testing',['N/A']))}</ul>
 <p><b>Documentation completed:</b></p><ul>{li(ts.get('documentation',['NA']))}</ul>
 <p><b>Blockers / Dependencies:</b></p><ul>{li(ts.get('blockers',['None']))}</ul>
-<p><b>Tomorrow's Planned Work:</b></p><ul>{li(ts.get('tomorrow',['Continue with the further tasks.']))}</ul>
+<p><b>Tomorrow's Planned Work:</b></p><ul>{li(ts.get('tomorrow',['-']))}</ul>
+<p><b>Questions:</b></p><ul>{li(ts.get('questions',['-']))}</ul>
 <hr>"""
 
     return f"""<div style="font-family:Arial,sans-serif;font-size:14px;color:#000;max-width:800px;">
@@ -599,7 +600,8 @@ Task {i}:
 - Hours Spent: {task.get('hours','N/A')}
 - Status: {task.get('status','N/A')}
 - Links: {task.get('links','N/A') or 'N/A'}
-- Additional Notes: {task.get('notes','N/A') or 'N/A'}
+- Tomorrow's Task: {task.get('tomorrow_task','') or 'Continue with further tasks'}
+- Questions: {task.get('questions','') or '-'}
 """
     if meetings and any(m.get('name') for m in meetings):
         meetings_text = "\n".join(f"Name: {m.get('name','NA')} | Duration: {m.get('duration','NA')} | Purpose: {m.get('purpose','NA')}" for m in meetings)
@@ -640,7 +642,8 @@ Return JSON with EXACTLY these fields (no markdown, no extra text):
       "qa_testing": ["test 1","test 2","test 3"],
       "documentation": ["NA"],
       "blockers": ["None"],
-      "tomorrow": ["Continue with the further tasks."]
+      "tomorrow": ["use Tomorrow's Task from input; expand into clear bullet points if given"],
+      "questions": ["use Questions from input as-is; '-' if empty"]
     }},
     {{
       "ticket": "TASK 2 NAME (repeat this object for every additional task)",
@@ -653,7 +656,8 @@ Return JSON with EXACTLY these fields (no markdown, no extra text):
       "qa_testing": ["test 1","test 2"],
       "documentation": ["NA"],
       "blockers": ["None"],
-      "tomorrow": ["Continue with the further tasks."]
+      "tomorrow": ["use Tomorrow's Task from input; expand into clear bullet points if given"],
+      "questions": ["use Questions from input as-is; '-' if empty"]
     }}
   ],
   "meetings": [{{"name":"NA","duration":"NA","purpose":"NA"}}]
@@ -680,17 +684,14 @@ Project/Client Name - [TICKET NAME]
 Actual Hours:
     - [X] Hours
 
-Note:
-    - [additional notes or leave empty with just -]
-
 Questions:
-    -
+    - [use Questions from input as bullet points; just - if empty]
 
 Links:
-    - [links if provided, else leave as -]
+    - [links if provided, else just -]
 
 Tomorrow's Task:
-    - Continue with the further tasks.
+    - [use Tomorrow's Task from input, expanded professionally; just - if empty]
 
 RULES:
 - teams_messages MUST have {num_tasks} items — one complete message per task, never combine tasks
