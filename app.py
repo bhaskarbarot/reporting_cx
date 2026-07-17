@@ -44,7 +44,7 @@ tickets_table  = db.table('tickets')
 ADMIN_EMAIL       = 'wp113.department@gmail.com'
 DRIVE_SCOPES      = ['https://www.googleapis.com/auth/drive.file',
                      'https://www.googleapis.com/auth/gmail.send',
-                     'https://www.googleapis.com/auth/gmail.settings.basic.readonly']
+                     'https://www.googleapis.com/auth/gmail.settings.basic']
 DRIVE_FOLDER_NAME = 'Daily Work Updates'
 DB_SYNC_FOLDER    = 'reporting_users'
 
