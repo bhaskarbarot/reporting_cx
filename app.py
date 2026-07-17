@@ -43,7 +43,8 @@ tickets_table  = db.table('tickets')
 
 ADMIN_EMAIL       = 'wp113.department@gmail.com'
 DRIVE_SCOPES      = ['https://www.googleapis.com/auth/drive.file',
-                     'https://www.googleapis.com/auth/gmail.send']
+                     'https://www.googleapis.com/auth/gmail.send',
+                     'https://www.googleapis.com/auth/gmail.settings.basic.readonly']
 DRIVE_FOLDER_NAME = 'Daily Work Updates'
 DB_SYNC_FOLDER    = 'reporting_users'
 
@@ -180,6 +181,20 @@ def send_via_gmail_api(sender_email, to_emails, subject, html_body):
             settings_table.update({'drive_token_json': creds.to_json()}, S.email == sender_email)
         else:
             raise Exception("Drive session expired. Please reconnect in Settings.")
+    # Try to fetch Gmail signature (requires gmail.settings.basic.readonly scope)
+    try:
+        sig_req = _req.Request(
+            f'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/{sender_email}',
+            headers={'Authorization': f'Bearer {creds.token}'},
+            method='GET'
+        )
+        sig_data = json.loads(_req.urlopen(sig_req, timeout=10).read())
+        sig_html = sig_data.get('signature', '').strip()
+        if sig_html:
+            html_body = html_body + f'<br><br><div>--<br>{sig_html}</div>'
+    except Exception:
+        pass  # no signature or scope not granted yet — send without it
+
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
     msg['From']    = sender_email
