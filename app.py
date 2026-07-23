@@ -1332,6 +1332,19 @@ def api_download(file_type, date_key):
     return redirect(url)
 
 
+@app.route('/admin/clear-users')
+def admin_clear_users():
+    """Admin-only: remove all non-admin users and sync to Drive."""
+    if session.get('email') != ADMIN_EMAIL:
+        return "Not authorized.", 403
+    U = Query()
+    users_table.remove(U.email != ADMIN_EMAIL)
+    settings_table.remove(U.email != ADMIN_EMAIL)
+    otps_table.truncate()
+    sync_db_to_drive()
+    return "Done. All non-admin users removed and synced to Drive."
+
+
 @app.route('/admin/export-token')
 def admin_export_token():
     """Admin-only: export Drive token JSON for ADMIN_DRIVE_TOKEN_JSON env var setup."""
