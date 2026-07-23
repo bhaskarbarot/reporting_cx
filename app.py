@@ -133,9 +133,12 @@ def _bootstrap_admin_token():
         return  # already in DB from previous sync
     try:
         creds = Credentials.from_authorized_user_info(json.loads(token_json), DRIVE_SCOPES)
-        if not creds.valid and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            token_json = creds.to_json()
+        # Use token/expiry check directly — creds.valid also checks scope match
+        # which fails for tokens that predate our gmail scopes, causing false negatives
+        if not creds.token or creds.expired:
+            if creds.refresh_token:
+                creds.refresh(Request())
+                token_json = creds.to_json()
         if found:
             settings_table.update({'drive_token_json': token_json}, S.email == ADMIN_EMAIL)
         else:
@@ -233,8 +236,8 @@ def send_via_gmail_api(sender_email, to_emails, subject, html_body):
         raise Exception("Drive not connected. Go to Settings → Connect Google Drive.")
     creds = Credentials.from_authorized_user_info(
         json.loads(found[0]['drive_token_json']), DRIVE_SCOPES)
-    if not creds.valid:
-        if creds.expired and creds.refresh_token:
+    if not creds.token or creds.expired:
+        if creds.refresh_token:
             creds.refresh(Request())
             settings_table.update({'drive_token_json': creds.to_json()}, S.email == sender_email)
         else:
@@ -433,8 +436,10 @@ def get_user_drive_service(email):
     if not token_json:
         raise Exception("Drive not connected. Go to Settings → Connect Google Drive.")
     creds = Credentials.from_authorized_user_info(json.loads(token_json), DRIVE_SCOPES)
-    if not creds.valid:
-        if creds.expired and creds.refresh_token:
+    # Check token and expiry directly — creds.valid also checks scope match which
+    # fails for old tokens that predate the gmail scopes we added, causing false negatives
+    if not creds.token or creds.expired:
+        if creds.refresh_token:
             creds.refresh(Request())
             settings_table.update({'drive_token_json': creds.to_json()}, S.email == email)
         else:
