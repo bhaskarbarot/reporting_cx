@@ -1397,6 +1397,20 @@ def admin_force_sync():
     return f'<pre style="padding:20px">Sync done.\nAdmin settings in DB: {bool(row)}\nHas groq: {bool(row and row[0].get("groq_api_key"))}\nHas drive token: {bool(row and row[0].get("drive_token_json"))}</pre>'
 
 
+@app.route('/admin/remove-unknown')
+def admin_remove_unknown():
+    """Admin-only: remove all users with unknown/pending status and sync to Drive."""
+    if session.get('user_email') != ADMIN_EMAIL:
+        return "Not authorized.", 403
+    U = Query()
+    removed = users_table.remove((U.status == 'unknown') | (U.status == 'pending'))
+    settings_table.remove((U.email == 'wp112.department@gmail.com') |
+                          (U.email == 'barotb076@gmail.com'))
+    sync_db_to_drive()
+    remaining = [r.get('email') for r in users_table.all()]
+    return f"Done. Removed unknown/pending users. Remaining: {remaining}"
+
+
 @app.route('/admin/clear-users')
 def admin_clear_users():
     """Admin-only: remove all non-admin users and sync to Drive."""
