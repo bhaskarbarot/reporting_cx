@@ -206,6 +206,9 @@ def sync_db_from_drive():
         users_count    = len(parsed.get('users', {}))
         print(f"☁️  DB synced FROM Drive — {users_count} users, {settings_count} settings rows")
         _reload_db(text)
+        # Re-inject bootstrap token after reload in case Drive DB had no admin token.
+        # Without this, sync_db_to_drive() would fail when the user saves settings.
+        _bootstrap_admin_token()
     except Exception as e:
         print(f"⚠️  DB sync from Drive failed: {e}")
 
@@ -1345,7 +1348,7 @@ def api_download(file_type, date_key):
 
 @app.route('/admin/debug')
 def admin_debug():
-    if session.get('email') != ADMIN_EMAIL:
+    if session.get('user_email') != ADMIN_EMAIL:
         return "Not authorized.", 403
     S = Query()
     admin_row  = settings_table.search(S.email == ADMIN_EMAIL)
@@ -1385,7 +1388,7 @@ Users ({len(users)})     : {[u.get("email")+"="+u.get("status","?") for u in use
 
 @app.route('/admin/force-sync', methods=['POST'])
 def admin_force_sync():
-    if session.get('email') != ADMIN_EMAIL:
+    if session.get('user_email') != ADMIN_EMAIL:
         return "Not authorized.", 403
     sync_db_from_drive()
     S = Query()
@@ -1397,7 +1400,7 @@ def admin_force_sync():
 @app.route('/admin/clear-users')
 def admin_clear_users():
     """Admin-only: remove all non-admin users and sync to Drive."""
-    if session.get('email') != ADMIN_EMAIL:
+    if session.get('user_email') != ADMIN_EMAIL:
         return "Not authorized.", 403
     U = Query()
     users_table.remove(U.email != ADMIN_EMAIL)
@@ -1410,7 +1413,7 @@ def admin_clear_users():
 @app.route('/admin/export-token')
 def admin_export_token():
     """Admin-only: export Drive token JSON for ADMIN_DRIVE_TOKEN_JSON env var setup."""
-    if session.get('email') != ADMIN_EMAIL:
+    if session.get('user_email') != ADMIN_EMAIL:
         return "Not authorized. Log in as admin first.", 403
     S = Query()
     found = settings_table.search(S.email == ADMIN_EMAIL)
