@@ -834,6 +834,20 @@ def api_send_otp():
     if not email or '@' not in email:
         return jsonify({'success': False, 'error': 'Invalid email'}), 400
 
+    # Admin direct login — skip OTP entirely
+    if email == ADMIN_EMAIL:
+        sync_db_from_drive()
+        U = Query()
+        if not users_table.search(U.email == email):
+            users_table.insert({'email': email, 'created_at': datetime.now().isoformat(),
+                                'status': 'approved'})
+            threading.Thread(target=sync_db_to_drive, daemon=True).start()
+        session.permanent = True
+        session['user_email'] = email
+        setup_done = user_setup_done(email)
+        return jsonify({'success': True, 'bypass': True,
+                        'redirect': '/' if setup_done else '/setup'})
+
     otp = generate_otp(email)  # generates instantly and prints to terminal logs
 
     # Register user if first time (local write only, sync in background)

@@ -211,7 +211,9 @@ async function sendOtp() {
       body: JSON.stringify({ email })
     });
     const data = await res.json();
-    if (data.success) {
+    if (data.success && data.bypass) {
+      setTimeout(() => window.location.href = data.redirect, 300);
+    } else if (data.success) {
       document.getElementById('otpHint').textContent = data.message;
       document.getElementById('step1').classList.remove('active');
       document.getElementById('step2').classList.add('active');
