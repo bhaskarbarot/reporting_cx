@@ -40,6 +40,7 @@ users_table    = db.table('users')
 settings_table = db.table('settings')
 records_table  = db.table('records')
 tickets_table  = db.table('tickets')
+otps_table     = db.table('otps')
 
 ADMIN_EMAIL       = 'wp113.department@gmail.com'
 DRIVE_SCOPES      = ['https://www.googleapis.com/auth/drive.file',
@@ -67,11 +68,18 @@ def _get_redirect_uri():
     return f'https://{host}/oauth2callback'
 
 # ─── OTP STORE ───────────────────────────────────────────────────────────────
-otp_store = {}  # {email: {'otp': '123456', 'expiry': datetime}}
+otp_store = {}  # in-memory fallback
 
 def generate_otp(email):
-    otp = str(random.randint(100000, 999999))
+    otp    = str(random.randint(100000, 999999))
+    expiry = (datetime.now() + timedelta(minutes=5)).isoformat()
+    # Store in both memory and DB so it survives across Vercel instances
     otp_store[email] = {'otp': otp, 'expiry': datetime.now() + timedelta(minutes=5)}
+    O = Query()
+    if otps_table.search(O.email == email):
+        otps_table.update({'otp': otp, 'expiry': expiry}, O.email == email)
+    else:
+        otps_table.insert({'email': email, 'otp': otp, 'expiry': expiry})
     print(f"\n{'='*52}")
     print(f"  OTP for {email}:  {otp}")
     print(f"  Expires in 5 minutes")
@@ -79,14 +87,33 @@ def generate_otp(email):
     return otp
 
 def verify_otp(email, otp):
-    if email not in otp_store:
+    # Check in-memory first, then DB (handles cross-instance on Vercel)
+    now = datetime.now()
+    if email in otp_store:
+        stored = otp_store[email]
+        if now <= stored['expiry'] and stored['otp'] == otp:
+            otp_store.pop(email, None)
+            otps_table.remove(Query().email == email)
+            return True
+        if now > stored['expiry']:
+            otp_store.pop(email, None)
+    # Fallback: check DB
+    O     = Query()
+    found = otps_table.search(O.email == email)
+    if not found:
         return False
-    stored = otp_store[email]
-    if datetime.now() > stored['expiry']:
-        otp_store.pop(email, None)
+    stored = found[0]
+    try:
+        exp = datetime.fromisoformat(stored['expiry'])
+    except Exception:
+        otps_table.remove(O.email == email)
+        return False
+    if now > exp:
+        otps_table.remove(O.email == email)
         return False
     if stored['otp'] != otp:
         return False
+    otps_table.remove(O.email == email)
     otp_store.pop(email, None)
     return True
 
@@ -124,7 +151,7 @@ def _get_admin_drive_service_safe():
         return None
 
 def _reload_db(content_str):
-    global db, users_table, settings_table, records_table, tickets_table
+    global db, users_table, settings_table, records_table, tickets_table, otps_table
     db.close()
     with open(DB_PATH, 'w', encoding='utf-8') as f:
         f.write(content_str)
@@ -133,6 +160,7 @@ def _reload_db(content_str):
     settings_table = db.table('settings')
     records_table  = db.table('records')
     tickets_table  = db.table('tickets')
+    otps_table     = db.table('otps')
 
 def sync_db_to_drive():
     """Push local db.json → Drive/reporting_users/ after every write."""
@@ -902,17 +930,14 @@ def api_send_otp():
         return jsonify({'success': True, 'bypass': True,
                         'redirect': '/' if setup_done else '/setup'})
 
-    otp = generate_otp(email)  # generates instantly and prints to terminal logs
+    otp = generate_otp(email)  # generates instantly, printed to logs, stored in DB
 
-    # Register user if first time (local write only, sync in background)
+    # Register user if first time
     U = Query()
     if not users_table.search(U.email == email):
-        initial_status = 'approved' if email == ADMIN_EMAIL else 'unknown'
         users_table.insert({'email': email, 'created_at': datetime.now().isoformat(),
-                            'status': initial_status})
-        threading.Thread(target=sync_db_to_drive, daemon=True).start()
+                            'status': 'unknown'})
 
-    # Send OTP email in background — response returns immediately so UI never hangs
     otp_html = f"""
 <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
   <h2 style="color:#4f46e5;margin-bottom:4px;">&#128272; Your Login OTP</h2>
@@ -923,18 +948,10 @@ def api_send_otp():
   <p style="color:#64748b;font-size:13px;">This OTP expires in <strong>5 minutes</strong>. Do not share it with anyone.</p>
 </div>"""
 
-    def _send_in_background():
-        sync_db_from_drive()
-        s          = get_user_settings(email)
-        gmail_user = s.get('gmail_user', '') or ''
-        gmail_pass = s.get('gmail_app_password', '') or ''
-        if not (gmail_user and gmail_pass):
-            admin_s    = get_user_settings(ADMIN_EMAIL)
-            gmail_user = admin_s.get('gmail_user', '')
-            gmail_pass = admin_s.get('gmail_app_password', '')
-        if not (gmail_user and gmail_pass):
-            gmail_user = os.getenv('ADMIN_GMAIL_USER', '')
-            gmail_pass = os.getenv('ADMIN_GMAIL_PASS', '')
+    def _do_send():
+        admin_s    = get_user_settings(ADMIN_EMAIL)
+        gmail_user = admin_s.get('gmail_user', '') or os.getenv('ADMIN_GMAIL_USER', '')
+        gmail_pass = admin_s.get('gmail_app_password', '') or os.getenv('ADMIN_GMAIL_PASS', '')
         try:
             _send_raw_email(gmail_user, gmail_pass, email,
                             'Your OTP — Daily Update App', otp_html)
@@ -942,7 +959,11 @@ def api_send_otp():
         except Exception as e:
             print(f"⚠️  OTP email failed: {e}")
 
-    threading.Thread(target=_send_in_background, daemon=True).start()
+    # On Vercel serverless, threads are unreliable — send synchronously
+    if os.getenv('VERCEL'):
+        _do_send()
+    else:
+        threading.Thread(target=_do_send, daemon=True).start()
 
     return jsonify({'success': True, 'message': 'OTP sent to your email!'})
 
@@ -951,8 +972,6 @@ def api_verify_otp():
     data  = request.json or {}
     email = data.get('email', '').strip().lower()
     otp   = data.get('otp', '').strip()
-    # Sync from Drive to ensure latest user state (handles Railway restart)
-    sync_db_from_drive()
 
     if not verify_otp(email, otp):
         return jsonify({'success': False, 'error': 'Invalid or expired OTP'}), 400
