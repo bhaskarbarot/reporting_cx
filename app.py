@@ -1106,11 +1106,20 @@ def oauth2callback():
             creds_path, DRIVE_SCOPES, redirect_uri=redirect_uri)
         flow.fetch_token(authorization_response=request.url)
         creds = flow.credentials
+        token_json = creds.to_json()
         S = Query()
+        # Save new token temporarily so sync_db_from_drive() can authenticate
         if settings_table.search(S.email == email):
-            settings_table.update({'drive_token_json': creds.to_json()}, S.email == email)
+            settings_table.update({'drive_token_json': token_json}, S.email == email)
         else:
-            settings_table.insert({'email': email, 'drive_token_json': creds.to_json()})
+            settings_table.insert({'email': email, 'drive_token_json': token_json})
+        # Pull existing Drive DB first — prevents overwriting old data on fresh deploy
+        sync_db_from_drive()
+        # Re-apply the new token on top of the restored DB
+        if settings_table.search(S.email == email):
+            settings_table.update({'drive_token_json': token_json}, S.email == email)
+        else:
+            settings_table.insert({'email': email, 'drive_token_json': token_json})
         sync_db_to_drive()
         session.pop('drive_auth_email', None)
         session.pop('drive_auth_state', None)
