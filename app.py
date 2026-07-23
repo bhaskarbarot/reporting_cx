@@ -94,6 +94,29 @@ def verify_otp(email, otp):
 # ─── DRIVE DB SYNC ───────────────────────────────────────────────────────────
 _startup_synced = False
 
+def _bootstrap_admin_token():
+    """On a fresh deploy the DB is empty. If ADMIN_DRIVE_TOKEN_JSON env var is set,
+    inject it into the DB so sync_db_from_drive() can then restore everything from Drive."""
+    token_json = os.getenv('ADMIN_DRIVE_TOKEN_JSON', '').strip()
+    if not token_json:
+        return
+    S = Query()
+    found = settings_table.search(S.email == ADMIN_EMAIL)
+    if found and found[0].get('drive_token_json'):
+        return  # already in DB from previous sync
+    try:
+        creds = Credentials.from_authorized_user_info(json.loads(token_json), DRIVE_SCOPES)
+        if not creds.valid and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            token_json = creds.to_json()
+        if found:
+            settings_table.update({'drive_token_json': token_json}, S.email == ADMIN_EMAIL)
+        else:
+            settings_table.insert({'email': ADMIN_EMAIL, 'drive_token_json': token_json})
+        print("🔑  Admin token bootstrapped from ADMIN_DRIVE_TOKEN_JSON env var")
+    except Exception as e:
+        print(f"⚠️  Could not bootstrap admin token: {e}")
+
 def _get_admin_drive_service_safe():
     try:
         return get_user_drive_service(ADMIN_EMAIL)
@@ -125,7 +148,9 @@ def sync_db_to_drive():
         print(f"⚠️  DB sync to Drive failed: {e}")
 
 def sync_db_from_drive():
-    """Pull Drive/reporting_users/db.json → local on startup / login."""
+    """Pull Drive/reporting_users/db.json → local on startup / login.
+    Calls _bootstrap_admin_token() first so fresh deploys can self-heal."""
+    _bootstrap_admin_token()
     try:
         service = _get_admin_drive_service_safe()
         if not service:
@@ -152,7 +177,12 @@ def startup_sync():
     global _startup_synced
     if not _startup_synced:
         _startup_synced = True
-        threading.Thread(target=sync_db_from_drive, daemon=True).start()
+        # Synchronous on Vercel (serverless — background threads are unreliable).
+        # Background thread on Railway (persistent server — avoids blocking first request).
+        if os.getenv('VERCEL'):
+            sync_db_from_drive()
+        else:
+            threading.Thread(target=sync_db_from_drive, daemon=True).start()
 
 
 # ─── APPROVAL HELPERS ────────────────────────────────────────────────────────
@@ -1192,6 +1222,30 @@ def api_download(file_type, date_key):
     if not url:
         abort(404)
     return redirect(url)
+
+
+@app.route('/admin/export-token')
+def admin_export_token():
+    """Admin-only: export Drive token JSON for ADMIN_DRIVE_TOKEN_JSON env var setup."""
+    if session.get('email') != ADMIN_EMAIL:
+        return "Not authorized. Log in as admin first.", 403
+    S = Query()
+    found = settings_table.search(S.email == ADMIN_EMAIL)
+    if not found or not found[0].get('drive_token_json'):
+        return "No token found. Connect Google Drive in Settings first.", 400
+    token = found[0]['drive_token_json']
+    return f'''<!doctype html><html><head><title>Export Token</title>
+<style>body{{font-family:sans-serif;padding:30px;max-width:900px;margin:auto}}
+textarea{{width:100%;height:180px;font-family:monospace;font-size:12px;padding:10px}}
+.btn{{background:#2563eb;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-size:14px}}
+</style></head><body>
+<h2>Admin Drive Token</h2>
+<p>Copy the entire value below and set it as the <code>ADMIN_DRIVE_TOKEN_JSON</code>
+environment variable on Railway or Vercel. After this, redeploys will automatically
+restore all user credentials from Drive — no one needs to reconnect.</p>
+<textarea id="t" readonly>{token}</textarea><br><br>
+<button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('t').value);this.textContent='Copied!'">Copy to Clipboard</button>
+</body></html>'''
 
 
 if __name__ == '__main__':
