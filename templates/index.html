@@ -622,7 +622,10 @@ body {
     <div class="card">
       <div class="card-header">
         <span class="card-title">📅 Work Update History</span>
-        <button class="btn btn-outline btn-sm" onclick="loadHistory()">🔄 Refresh</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" onclick="loadHistory()">🔄 Refresh</button>
+          <button class="btn btn-outline btn-sm" id="rebuildBtn" onclick="rebuildHistory()" title="Restore old reports from Google Drive">☁️ Restore from Drive</button>
+        </div>
       </div>
       <div id="historyBody">
         <div class="empty-state"><div class="empty-icon">📂</div><p>Loading history...</p></div>
@@ -1200,6 +1203,27 @@ async function loadHistory() {
     </table>`;
   } catch(e) {
     body.innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><p>Failed to load history</p></div>';
+  }
+}
+
+async function rebuildHistory() {
+  const btn = document.getElementById('rebuildBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Restoring...';
+  try {
+    const res  = await fetch('/api/history/rebuild', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      alert(data.message);
+      if (data.rebuilt > 0) loadHistory();
+    } else {
+      alert('Error: ' + (data.error || 'Unknown error'));
+    }
+  } catch(e) {
+    alert('Network error. Try again.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '☁️ Restore from Drive';
   }
 }
 

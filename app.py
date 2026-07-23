@@ -464,6 +464,60 @@ def fetch_teams_from_drive(email, file_id):
     content = service.files().get_media(fileId=file_id).execute()
     return content.decode('utf-8') if isinstance(content, bytes) else str(content)
 
+def rebuild_history_from_drive(email):
+    """Scan Drive files and rebuild records_table for a user whose history index was lost."""
+    service     = get_user_drive_service(email)
+    root_id     = get_or_create_folder(service, DRIVE_FOLDER_NAME)
+    user_folder = get_or_create_folder(service, email, root_id)
+    teams_fid   = get_or_create_folder(service, 'Teams', user_folder)
+    mail_fid    = get_or_create_folder(service, 'Mail',  user_folder)
+
+    # List all .txt files in Teams folder
+    teams_files = service.files().list(
+        q=f"'{teams_fid}' in parents and name contains '.txt' and trashed=false",
+        fields='files(id,name,webViewLink)'
+    ).execute().get('files', [])
+
+    # List all .docx files in Mail folder — build a name→id/url map
+    mail_files = service.files().list(
+        q=f"'{mail_fid}' in parents and name contains '.docx' and trashed=false",
+        fields='files(id,name,webViewLink)'
+    ).execute().get('files', [])
+    mail_map = {f['name'].replace('.docx', ''): f for f in mail_files}
+
+    R = Query()
+    rebuilt = 0
+    for tf in teams_files:
+        date_key = tf['name'].replace('.txt', '')
+        # Skip if already indexed
+        if records_table.search((R.date == date_key) & (R.user == email)):
+            continue
+        mf       = mail_map.get(date_key, {})
+        # date_key like 2026-07-01 → display date 01/07/2026
+        try:
+            parts        = date_key.split('-')
+            display_date = f"{parts[2]}/{parts[1]}/{parts[0]}"
+        except Exception:
+            display_date = date_key
+        record = {
+            'user':            email,
+            'date':            date_key,
+            'display_date':    display_date,
+            'teams_drive_id':  tf['id'],
+            'mail_drive_id':   mf.get('id', ''),
+            'teams_drive_url': f"https://drive.google.com/file/d/{tf['id']}/view",
+            'mail_drive_url':  f"https://drive.google.com/file/d/{mf['id']}/view" if mf.get('id') else '',
+            'task_count':      0,
+            'tickets':         [],
+            'saved_at':        date_key,
+        }
+        records_table.insert(record)
+        rebuilt += 1
+
+    if rebuilt:
+        sync_db_to_drive()
+    return rebuilt
+
 
 # ─── DOCX BUILDER ────────────────────────────────────────────────────────────
 def _build_docx_bytes(email, work_date, form_data, teams_message):
@@ -1204,6 +1258,18 @@ def api_history():
     records = records_table.search(R.user == email)
     records.sort(key=lambda x: x.get('date', ''), reverse=True)
     return jsonify({'records': records})
+
+@app.route('/api/history/rebuild', methods=['POST'])
+@login_required_api
+def api_history_rebuild():
+    email = get_current_user()
+    try:
+        rebuilt = rebuild_history_from_drive(email)
+        return jsonify({'success': True, 'rebuilt': rebuilt,
+                        'message': f'Restored {rebuilt} report(s) from Drive.'
+                                   if rebuilt else 'All reports already indexed.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/history/<date_key>')
 @login_required_api
