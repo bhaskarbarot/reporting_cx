@@ -185,21 +185,27 @@ def sync_db_from_drive():
     try:
         service = _get_admin_drive_service_safe()
         if not service:
+            print("⚠️  sync_db_from_drive: no Drive service (bootstrap token issue?)")
             return
+        print("☁️  sync_db_from_drive: Drive service OK, searching for DB folder...")
         q = (f"name='{DB_SYNC_FOLDER}' and "
              f"mimeType='application/vnd.google-apps.folder' and trashed=false")
         folders = service.files().list(q=q, fields='files(id)').execute().get('files', [])
         if not folders:
+            print(f"⚠️  sync_db_from_drive: folder '{DB_SYNC_FOLDER}' not found in Drive")
             return
         q2 = f"name='db.json' and '{folders[0]['id']}' in parents and trashed=false"
         files = service.files().list(q=q2, fields='files(id)').execute().get('files', [])
         if not files:
+            print("⚠️  sync_db_from_drive: db.json not found in Drive folder")
             return
         raw = service.files().get_media(fileId=files[0]['id']).execute()
         text = raw.decode('utf-8') if isinstance(raw, bytes) else raw
-        json.loads(text)        # validate before overwriting
+        parsed = json.loads(text)        # validate before overwriting
+        settings_count = len(parsed.get('settings', {}))
+        users_count    = len(parsed.get('users', {}))
+        print(f"☁️  DB synced FROM Drive — {users_count} users, {settings_count} settings rows")
         _reload_db(text)
-        print("☁️  DB synced FROM Drive")
     except Exception as e:
         print(f"⚠️  DB sync from Drive failed: {e}")
 
@@ -1335,6 +1341,57 @@ def api_download(file_type, date_key):
     if not url:
         abort(404)
     return redirect(url)
+
+
+@app.route('/admin/debug')
+def admin_debug():
+    if session.get('email') != ADMIN_EMAIL:
+        return "Not authorized.", 403
+    S = Query()
+    admin_row  = settings_table.search(S.email == ADMIN_EMAIL)
+    has_token  = bool(admin_row and admin_row[0].get('drive_token_json'))
+    has_groq   = bool(admin_row and admin_row[0].get('groq_api_key'))
+    has_gmail  = bool(admin_row and admin_row[0].get('gmail_user'))
+    token_scopes = ''
+    if has_token:
+        try:
+            t = json.loads(admin_row[0]['drive_token_json'])
+            token_scopes = str(t.get('scopes', []))
+            expiry       = t.get('expiry', 'unknown')
+        except Exception:
+            token_scopes = 'parse error'
+            expiry = 'unknown'
+    else:
+        expiry = 'N/A'
+    users = users_table.all()
+    env_token = bool(os.getenv('ADMIN_DRIVE_TOKEN_JSON', '').strip())
+    return f'''<pre style="padding:20px;font-family:monospace;font-size:13px">
+=== VERCEL DB STATE ===
+Admin settings row found : {bool(admin_row)}
+  has drive token        : {has_token}
+  token scopes           : {token_scopes}
+  token expiry           : {expiry}
+  has groq key           : {has_groq}
+  has gmail              : {has_gmail}
+ADMIN_DRIVE_TOKEN_JSON   : {"SET" if env_token else "MISSING"}
+Users ({len(users)})     : {[u.get("email")+"="+u.get("status","?") for u in users]}
+</pre>
+<form method="post" action="/admin/force-sync">
+  <button style="padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">
+    Force Sync from Drive now
+  </button>
+</form>'''
+
+
+@app.route('/admin/force-sync', methods=['POST'])
+def admin_force_sync():
+    if session.get('email') != ADMIN_EMAIL:
+        return "Not authorized.", 403
+    sync_db_from_drive()
+    S = Query()
+    row = settings_table.search(S.email == ADMIN_EMAIL)
+    has_settings = bool(row and row.get('groq_api_key') if row else False)
+    return f'<pre style="padding:20px">Sync done.\nAdmin settings in DB: {bool(row)}\nHas groq: {bool(row and row[0].get("groq_api_key"))}\nHas drive token: {bool(row and row[0].get("drive_token_json"))}</pre>'
 
 
 @app.route('/admin/clear-users')
