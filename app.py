@@ -252,6 +252,23 @@ def _make_attachment_part(attachment):
     part.add_header('Content-Disposition', 'attachment', filename=filename)
     return part
 
+def _decode_attachment(attachment_in):
+    """Decode + size-validate a client {filename, mime_type, data_base64} payload.
+    Returns (attachment_dict_or_None, error_message_or_None)."""
+    if not attachment_in or not attachment_in.get('data_base64'):
+        return None, None
+    try:
+        file_bytes = base64.b64decode(attachment_in['data_base64'])
+    except Exception:
+        return None, 'Invalid attachment data.'
+    if len(file_bytes) > MAX_ATTACHMENT_BYTES:
+        return None, 'Attachment too big! Max size is 3 MB.'
+    return {
+        'filename':  attachment_in.get('filename') or 'attachment',
+        'mime_type': attachment_in.get('mime_type') or '',
+        'bytes':     file_bytes,
+    }, None
+
 def send_via_gmail_api(sender_email, to_emails, subject, html_body, attachment=None):
     """Send email via Gmail API using raw urllib — no discovery doc download needed."""
     import urllib.request as _req, urllib.error
@@ -514,7 +531,7 @@ def upload_to_drive(service, folder_id, filename, content_bytes, mime_type):
     return file_id
 
 
-def save_to_drive(email, date_key, work_date, form_data, teams_message):
+def save_to_drive(email, date_key, work_date, form_data, teams_message, attachment=None):
     service    = get_user_drive_service(email)
     root_id    = get_or_create_folder(service, DRIVE_FOLDER_NAME)
     user_folder = get_or_create_folder(service, email, root_id)
@@ -526,12 +543,22 @@ def save_to_drive(email, date_key, work_date, form_data, teams_message):
     m_id = upload_to_drive(service, mail_fid,  f"{date_key}.docx",
                             _build_docx_bytes(email, work_date, form_data, teams_message),
                             'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-    return {
+    result = {
         'teams_drive_id':  t_id,
         'mail_drive_id':   m_id,
         'teams_drive_url': f"https://drive.google.com/file/d/{t_id}/view",
         'mail_drive_url':  f"https://drive.google.com/file/d/{m_id}/view",
     }
+    if attachment:
+        attach_fid = get_or_create_folder(service, 'Attachments', user_folder)
+        # Prefix with date_key so same-named files from different days don't overwrite each other
+        drive_name = f"{date_key}_{attachment['filename']}"
+        mime_type  = attachment.get('mime_type') or mimetypes.guess_type(attachment['filename'])[0] or 'application/octet-stream'
+        a_id = upload_to_drive(service, attach_fid, drive_name, attachment['bytes'], mime_type)
+        result['attachment_drive_id']   = a_id
+        result['attachment_drive_url']  = f"https://drive.google.com/file/d/{a_id}/view"
+        result['attachment_filename']   = attachment['filename']
+    return result
 
 def fetch_teams_from_drive(email, file_id):
     service = get_user_drive_service(email)
@@ -1258,7 +1285,11 @@ def api_save():
         work_date    = form_data.get('date', get_working_date())
         date_key     = work_date.replace('/', '-')
 
-        drive_result = save_to_drive(email, date_key, work_date, form_data, teams_msg)
+        attachment, attach_err = _decode_attachment(data.get('attachment'))
+        if attach_err:
+            return jsonify({'success': False, 'error': attach_err}), 400
+
+        drive_result = save_to_drive(email, date_key, work_date, form_data, teams_msg, attachment=attachment)
 
         R = Query()
         record = {
@@ -1269,6 +1300,11 @@ def api_save():
             'mail_drive_id':   drive_result['mail_drive_id'],
             'teams_drive_url': drive_result['teams_drive_url'],
             'mail_drive_url':  drive_result['mail_drive_url'],
+            # Cleared to '' when no attachment this save, so a stale link from a
+            # previous save for the same day never lingers once removed.
+            'attachment_drive_id':  drive_result.get('attachment_drive_id', ''),
+            'attachment_drive_url': drive_result.get('attachment_drive_url', ''),
+            'attachment_filename':  drive_result.get('attachment_filename', ''),
             'task_count':      len(form_data.get('tasks', [])),
             'tickets':         [t.get('ticket','') for t in form_data.get('tasks', [])],
             'saved_at':        datetime.now().isoformat()
@@ -1304,20 +1340,9 @@ def api_send_email():
         email_html    = data.get('email_html', '')
         email_subject = data.get('email_subject', 'Daily Work Update')
 
-        attachment_in = data.get('attachment')
-        attachment = None
-        if attachment_in and attachment_in.get('data_base64'):
-            try:
-                file_bytes = base64.b64decode(attachment_in['data_base64'])
-            except Exception:
-                return jsonify({'success': False, 'error': 'Invalid attachment data.'}), 400
-            if len(file_bytes) > MAX_ATTACHMENT_BYTES:
-                return jsonify({'success': False, 'error': 'Attachment too big! Max size is 3 MB.'}), 400
-            attachment = {
-                'filename':  attachment_in.get('filename') or 'attachment',
-                'mime_type': attachment_in.get('mime_type') or '',
-                'bytes':     file_bytes,
-            }
+        attachment, attach_err = _decode_attachment(data.get('attachment'))
+        if attach_err:
+            return jsonify({'success': False, 'error': attach_err}), 400
 
         full_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:20px;font-family:Arial,sans-serif;">{email_html}</body></html>"""
@@ -1387,7 +1412,12 @@ def api_download(file_type, date_key):
     if not found:
         abort(404)
     record = found[0]
-    url = record.get('teams_drive_url') if file_type == 'teams' else record.get('mail_drive_url')
+    if file_type == 'teams':
+        url = record.get('teams_drive_url')
+    elif file_type == 'attachment':
+        url = record.get('attachment_drive_url')
+    else:
+        url = record.get('mail_drive_url')
     if not url:
         abort(404)
     return redirect(url)
