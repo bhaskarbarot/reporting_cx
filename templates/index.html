@@ -280,6 +280,30 @@ body {
 
 .email-frame { width: 100%; height: 460px; border: none; border-radius: 10px; background: white; }
 
+/* ATTACHMENT */
+.attach-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #eef2ff;
+  border: 1.5px solid #c7d2fe;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  font-size: 0.82rem;
+  color: var(--primary);
+}
+.attach-chip .attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-chip .remove-attach {
+  cursor: pointer;
+  color: var(--danger);
+  font-weight: 700;
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+.attach-chip .remove-attach:hover { text-decoration: underline; }
+
 /* SECTION DIVIDER */
 .divider {
   display: flex;
@@ -591,8 +615,15 @@ body {
         <div class="card">
           <div class="card-header" style="padding-bottom:10px;">
             <span class="card-title">📧 Email Preview</span>
-            <span class="badge badge-green" id="subjectBadge">Preview</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="file" id="attachmentInput" style="display:none;" onchange="handleAttachmentSelect(event)">
+              <button class="btn btn-outline btn-sm" id="attachBtn" type="button"
+                      onclick="document.getElementById('attachmentInput').click()"
+                      title="Attach a file to this email (max 3 MB)">📎 Attach</button>
+              <span class="badge badge-green" id="subjectBadge">Preview</span>
+            </div>
           </div>
+          <div id="attachmentChip" style="display:none;"></div>
           <iframe class="email-frame" id="emailFrame" title="Email Preview"></iframe>
         </div>
 
@@ -661,6 +692,10 @@ let pinnedProjects = [];
 let taskSeq = 0;
 let meetSeq = 0;
 let meetVisible = false;
+
+// ─── ATTACHMENT ──────────────────────────────────────────
+const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024; // 3 MB raw — base64 (~1.33x) + JSON overhead stays under Vercel's 4.5MB request body cap
+let currentAttachment = null; // { filename, mimeType, size, base64 }
 
 // ─── DRAFT (localStorage) ───────────────────────────────
 const DRAFT_KEY = 'dailyUpdateDraft';
@@ -1031,6 +1066,10 @@ async function generateUpdate() {
     currentEmailHtml = data.email_html;
     currentEmailSubject = data.email_subject;
 
+    // A new report — clear any attachment picked for a previous one
+    currentAttachment = null;
+    renderAttachmentChip();
+
     // Render separate Teams message box per project
     const teamsArr = data.teams_messages || [currentTeams];
     const container = document.getElementById('teamsMessagesContainer');
@@ -1044,13 +1083,7 @@ async function generateUpdate() {
       </div>`).join('');
 
     // Email iframe
-    const frame = document.getElementById('emailFrame');
-    const doc = frame.contentWindow.document;
-    doc.open();
-    doc.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-      <style>body{margin:0;padding:14px;font-family:Arial,sans-serif;}</style>
-      </head><body>${currentEmailHtml}</body></html>`);
-    doc.close();
+    renderEmailPreview();
 
     document.getElementById('subjectBadge').textContent = currentEmailSubject;
 
@@ -1067,6 +1100,75 @@ async function generateUpdate() {
     setLoading(false);
     btn.disabled = false;
   }
+}
+
+// ─── ATTACHMENT ──────────────────────────────────────────
+function handleAttachmentSelect(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = ''; // reset so picking the same file again still fires onchange
+  if (!file) return;
+
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    showToast('warning', `File too big! "${file.name}" is over 3 MB — pick a smaller file.`);
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const base64 = (reader.result || '').split(',')[1] || '';
+    currentAttachment = {
+      filename: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      size: file.size,
+      base64
+    };
+    renderAttachmentChip();
+    renderEmailPreview();
+    showToast('success', `📎 "${file.name}" attached.`);
+  };
+  reader.onerror = () => showToast('error', 'Could not read that file. Try again.');
+  reader.readAsDataURL(file);
+}
+
+function removeAttachment() {
+  currentAttachment = null;
+  renderAttachmentChip();
+  renderEmailPreview();
+}
+
+function renderAttachmentChip() {
+  const chip = document.getElementById('attachmentChip');
+  if (!chip) return;
+  if (!currentAttachment) {
+    chip.style.display = 'none';
+    chip.innerHTML = '';
+    return;
+  }
+  const sizeLabel = currentAttachment.size >= 1024 * 1024
+    ? (currentAttachment.size / (1024 * 1024)).toFixed(1) + ' MB'
+    : Math.ceil(currentAttachment.size / 1024) + ' KB';
+  chip.style.display = 'block';
+  chip.innerHTML = `<div class="attach-chip">
+      <span class="attach-name">📎 ${escHtml(currentAttachment.filename)} (${sizeLabel})</span>
+      <span class="remove-attach" onclick="removeAttachment()" title="Remove attachment">✕ Remove</span>
+    </div>`;
+}
+
+function buildDisplayEmailHtml() {
+  if (!currentAttachment) return currentEmailHtml;
+  const attachBlock = `<p><b>Attachment:</b></p><ul><li>${escHtml(currentAttachment.filename)}</li></ul>`;
+  return currentEmailHtml + attachBlock;
+}
+
+function renderEmailPreview() {
+  const frame = document.getElementById('emailFrame');
+  if (!frame) return;
+  const doc = frame.contentWindow.document;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <style>body{margin:0;padding:14px;font-family:Arial,sans-serif;}</style>
+    </head><body>${buildDisplayEmailHtml()}</body></html>`);
+  doc.close();
 }
 
 // ─── SAVE ONLY ───────────────────────────────────────────
@@ -1111,17 +1213,25 @@ async function approveAndSend() {
 
   // Send email
   try {
+    const payload = {
+      email_html: buildDisplayEmailHtml(),
+      email_subject: currentEmailSubject
+    };
+    if (currentAttachment) {
+      payload.attachment = {
+        filename: currentAttachment.filename,
+        mime_type: currentAttachment.mimeType,
+        data_base64: currentAttachment.base64
+      };
+    }
     const res = await fetch('/api/send_email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email_html: currentEmailHtml,
-        email_subject: currentEmailSubject
-      })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (data.success) {
-      showToast('success', '✉️ Email sent to boss + CC!');
+      showToast('success', currentAttachment ? '✉️ Email sent with attachment!' : '✉️ Email sent to boss + CC!');
     } else {
       showToast('error', data.error);
     }

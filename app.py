@@ -4,10 +4,14 @@ import json
 import random
 import secrets
 import smtplib
+import base64
+import mimetypes
 import threading
 from datetime import datetime, date, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, redirect, session, abort
 from groq import Groq
@@ -48,6 +52,7 @@ DRIVE_SCOPES      = ['https://www.googleapis.com/auth/drive.file',
                      'https://www.googleapis.com/auth/gmail.settings.basic']
 DRIVE_FOLDER_NAME = 'Daily Work Updates'
 DB_SYNC_FOLDER    = 'reporting_users'
+MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024  # 3 MB raw — base64 (~1.33x) + JSON overhead stays under Vercel's 4.5MB request body cap
 
 def _get_creds_path():
     """Return path to credentials.json — from file or GOOGLE_CREDENTIALS_JSON env var."""
@@ -236,9 +241,20 @@ def is_user_approved(email):
         return True
     return get_user_status(email) == 'approved'
 
-def send_via_gmail_api(sender_email, to_emails, subject, html_body):
+def _make_attachment_part(attachment):
+    """Build a MIME part for an email attachment dict: {filename, mime_type, bytes}."""
+    filename  = attachment['filename']
+    mime_type = attachment.get('mime_type') or mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+    maintype, _, subtype = mime_type.partition('/')
+    part = MIMEBase(maintype or 'application', subtype or 'octet-stream')
+    part.set_payload(attachment['bytes'])
+    encoders.encode_base64(part)
+    part.add_header('Content-Disposition', 'attachment', filename=filename)
+    return part
+
+def send_via_gmail_api(sender_email, to_emails, subject, html_body, attachment=None):
     """Send email via Gmail API using raw urllib — no discovery doc download needed."""
-    import base64, urllib.request as _req, urllib.error
+    import urllib.request as _req, urllib.error
     S = Query()
     found = settings_table.search(S.email == sender_email)
     if not found or not found[0].get('drive_token_json'):
@@ -265,13 +281,21 @@ def send_via_gmail_api(sender_email, to_emails, subject, html_body):
     except Exception:
         pass  # no signature or scope not granted yet — send without it
 
-    msg = MIMEMultipart('alternative')
+    if attachment:
+        msg = MIMEMultipart('mixed')
+        alt = MIMEMultipart('alternative')
+        alt.attach(MIMEText(html_body, 'html'))
+        msg.attach(alt)
+    else:
+        msg = MIMEMultipart('alternative')
+        msg.attach(MIMEText(html_body, 'html'))
     msg['Subject'] = subject
     msg['From']    = sender_email
     msg['To']      = to_emails[0] if to_emails else ''
     if len(to_emails) > 1:
         msg['Cc'] = ', '.join(to_emails[1:])
-    msg.attach(MIMEText(html_body, 'html'))
+    if attachment:
+        msg.attach(_make_attachment_part(attachment))
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     payload = json.dumps({'raw': raw}).encode('utf-8')
     req = _req.Request(
@@ -287,13 +311,13 @@ def send_via_gmail_api(sender_email, to_emails, subject, html_body):
         body = e.read().decode('utf-8', errors='replace')
         raise Exception(f"Gmail API {e.code}: {body}")
 
-def _send_raw_email(from_user, from_pass, to_email, subject, html_body, cc_emails=None):
+def _send_raw_email(from_user, from_pass, to_email, subject, html_body, cc_emails=None, attachment=None):
     all_rcpt = [to_email] + (cc_emails or [])
     last_err = None
 
     # Try Gmail API first (works on Railway via HTTPS, appears in Sent folder)
     try:
-        send_via_gmail_api(ADMIN_EMAIL, all_rcpt, subject, html_body)
+        send_via_gmail_api(ADMIN_EMAIL, all_rcpt, subject, html_body, attachment=attachment)
         return  # success
     except Exception as e:
         last_err = e  # Drive not connected or scope missing — try SMTP next
@@ -301,13 +325,21 @@ def _send_raw_email(from_user, from_pass, to_email, subject, html_body, cc_email
     # Try SMTP port 587 STARTTLS (less restricted than 465 SSL on cloud servers)
     if from_user and from_pass:
         try:
-            msg = MIMEMultipart('alternative')
+            if attachment:
+                msg = MIMEMultipart('mixed')
+                alt = MIMEMultipart('alternative')
+                alt.attach(MIMEText(html_body, 'html'))
+                msg.attach(alt)
+            else:
+                msg = MIMEMultipart('alternative')
+                msg.attach(MIMEText(html_body, 'html'))
             msg['Subject'] = subject
             msg['From']    = from_user
             msg['To']      = to_email
             if cc_emails:
                 msg['Cc'] = ', '.join(cc_emails)
-            msg.attach(MIMEText(html_body, 'html'))
+            if attachment:
+                msg.attach(_make_attachment_part(attachment))
             with smtplib.SMTP('smtp.gmail.com', 587, timeout=8) as sv:
                 sv.ehlo()
                 sv.starttls()
@@ -1272,12 +1304,27 @@ def api_send_email():
         email_html    = data.get('email_html', '')
         email_subject = data.get('email_subject', 'Daily Work Update')
 
+        attachment_in = data.get('attachment')
+        attachment = None
+        if attachment_in and attachment_in.get('data_base64'):
+            try:
+                file_bytes = base64.b64decode(attachment_in['data_base64'])
+            except Exception:
+                return jsonify({'success': False, 'error': 'Invalid attachment data.'}), 400
+            if len(file_bytes) > MAX_ATTACHMENT_BYTES:
+                return jsonify({'success': False, 'error': 'Attachment too big! Max size is 3 MB.'}), 400
+            attachment = {
+                'filename':  attachment_in.get('filename') or 'attachment',
+                'mime_type': attachment_in.get('mime_type') or '',
+                'bytes':     file_bytes,
+            }
+
         full_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:20px;font-family:Arial,sans-serif;">{email_html}</body></html>"""
 
         all_recipients = [to_email] + cc_emails
         try:
-            send_via_gmail_api(email, all_recipients, email_subject, full_html)
+            send_via_gmail_api(email, all_recipients, email_subject, full_html, attachment=attachment)
             return jsonify({'success': True, 'message': 'Email sent! Check your Gmail Sent folder.'})
         except Exception as api_err:
             print(f"⚠️  Gmail API error for {email}: {api_err}")
@@ -1285,7 +1332,7 @@ def api_send_email():
             # Try SMTP fallback (works on local dev, fails on Railway — reported to user)
             try:
                 _send_raw_email(gmail_user, gmail_pass, to_email,
-                                email_subject, full_html, cc_emails=cc_emails)
+                                email_subject, full_html, cc_emails=cc_emails, attachment=attachment)
                 return jsonify({'success': True, 'message': 'Email sent!'})
             except Exception:
                 return jsonify({'success': False, 'error': f'Email failed: {err}'}), 500
