@@ -1446,7 +1446,15 @@ def api_history():
     email = get_current_user()
     R     = Query()
     records = records_table.search(R.user == email)
-    records.sort(key=lambda x: x.get('date', ''), reverse=True)
+
+    def _date_sort_key(rec):
+        d = rec.get('date', '')
+        parts = d.replace('-', '/').split('/')
+        if len(parts) == 3:
+            return (parts[0] + parts[1] + parts[2]) if len(parts[0]) == 4 else (parts[2] + parts[1] + parts[0])
+        return d
+
+    records.sort(key=_date_sort_key, reverse=True)
     return jsonify({'records': records})
 
 @app.route('/api/history/rebuild', methods=['POST'])
