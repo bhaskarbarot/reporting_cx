@@ -721,23 +721,34 @@ def build_email_html(work_date, form_data, llm_result, user_email):
 <td style="padding:8px;border:1px solid #999;">{m.get('purpose','NA')}</td>
 </tr>"""
 
+    def _meaningful(lst):
+        if not lst: return False
+        joined = " ".join(str(x).strip().lower() for x in lst)
+        return joined not in ('', '-', 'none', 'na', 'n/a') and bool(joined.strip())
+
     summaries = ""
     for ts in task_summaries:
-        def li(items): return "".join(f"<li>{x}</li>" for x in items)
+        def li(items): return "".join(f"<li>{x}</li>" for x in (items or []))
+
         links_html = ""
-        if ts.get('links'):
+        if _meaningful(ts.get('links', [])):
             links_html = "<p><b>Links:</b></p><ul>" + "".join(f"<li>{l}</li>" for l in ts['links']) + "</ul>"
-        summaries += f"""
-<p><b>{ts['ticket']}</b></p>
-{links_html}
-<p><b>Commits completed:</b></p><ul>{li(ts.get('commits',['N/A']))}</ul>
-<p><b>Modules/screens/features worked on:</b></p><ul>{li(ts.get('modules',['N/A']))}</ul>
-<p><b>QA/testing done:</b></p><ul>{li(ts.get('qa_testing',['N/A']))}</ul>
-<p><b>Documentation completed:</b></p><ul>{li(ts.get('documentation',['NA']))}</ul>
-<p><b>Blockers / Dependencies:</b></p><ul>{li(ts.get('blockers',['None']))}</ul>
-<p><b>Tomorrow's Planned Work:</b></p><ul>{li(ts.get('tomorrow',['-']))}</ul>
-<p><b>Questions:</b></p><ul>{li(ts.get('questions',['-']))}</ul>
-<hr>"""
+
+        summaries += f"\n<p><b>{ts['ticket']}</b></p>\n{links_html}"
+        summaries += f"<p><b>Commits completed:</b></p><ul>{li(ts.get('commits',['N/A']))}</ul>"
+        summaries += f"<p><b>Modules/screens/features worked on:</b></p><ul>{li(ts.get('modules',['N/A']))}</ul>"
+        summaries += f"<p><b>QA/testing done:</b></p><ul>{li(ts.get('qa_testing',['N/A']))}</ul>"
+
+        if _meaningful(ts.get('documentation', [])):
+            summaries += f"<p><b>Documentation completed:</b></p><ul>{li(ts['documentation'])}</ul>"
+        if _meaningful(ts.get('blockers', [])):
+            summaries += f"<p><b>Blockers / Dependencies:</b></p><ul>{li(ts['blockers'])}</ul>"
+        if _meaningful(ts.get('tomorrow', [])):
+            summaries += f"<p><b>Tomorrow's Planned Work:</b></p><ul>{li(ts['tomorrow'])}</ul>"
+        if _meaningful(ts.get('questions', [])):
+            summaries += f"<p><b>Questions:</b></p><ul>{li(ts['questions'])}</ul>"
+
+        summaries += "<hr>"
 
     return f"""<div style="font-family:Arial,sans-serif;font-size:14px;color:#000;max-width:800px;">
 <p>Date: {work_date}</p>
@@ -793,15 +804,21 @@ def call_llm(form_data, user_email):
 
     tasks_text = ""
     for i, task in enumerate(tasks, 1):
+        def _has_content(v):
+            s = (v or '').strip()
+            return bool(s) and s.lstrip('-').strip() != ''
+        links_val     = (task.get('links', '') or '').strip()
+        tomorrow_val  = (task.get('tomorrow_task', '') or '').strip()
+        questions_val = (task.get('questions', '') or '').strip()
         tasks_text += f"""
 Task {i}:
 - Ticket/Project Name: {task.get('ticket','N/A')}
 - What I Did Today: {task.get('description','N/A')}
 - Hours Spent: {task.get('hours','N/A')}
 - Status: {task.get('status','N/A')}
-- Links: {task.get('links','N/A') or 'N/A'}
-- Tomorrow's Task: {task.get('tomorrow_task','') or 'Continue with further tasks'}
-- Questions: {task.get('questions','') or '-'}
+- Links: {links_val if _has_content(links_val) else '[EMPTY - omit Links section]'}
+- Tomorrow's Task: {tomorrow_val if _has_content(tomorrow_val) else '[EMPTY - omit Tomorrow section]'}
+- Questions: {questions_val if _has_content(questions_val) else '[EMPTY - omit Questions section]'}
 """
     if meetings and any(m.get('name') for m in meetings):
         meetings_text = "\n".join(f"Name: {m.get('name','NA')} | Duration: {m.get('duration','NA')} | Purpose: {m.get('purpose','NA')}" for m in meetings)
@@ -809,7 +826,14 @@ Task {i}:
         meetings_text = "No meetings today."
 
     num_tasks = len(tasks)
-    prompt = f"""You are a professional AIML developer assistant. Format the daily work update into JSON.
+    prompt = f"""You are a precise AIML developer assistant. Format the daily work update into professional JSON.
+
+WRITING RULES (follow strictly):
+- All bullet points: concise, technical, direct — 6 to 12 words each
+- Start every bullet with a past-tense action verb: "Implemented", "Fixed", "Optimized", "Integrated", "Resolved", "Deployed", "Refactored", "Debugged", "Tested", "Configured"
+- BANNED filler: "I was able to", "Successfully", "Worked on implementing", "In this task I", "I have", "Basically", "Was able to"
+- Be specific to the actual task — no generic filler content
+- If a field says [EMPTY - omit ... section]: exclude that entire section from teams_messages and set it to [] in JSON
 
 Date: {work_date}
 Department: {dept}
@@ -833,31 +857,17 @@ Return JSON with EXACTLY these fields (no markdown, no extra text):
   "task_summaries": [
     {{
       "ticket": "TASK 1 NAME",
-      "description_points": ["point 1","point 2","point 3","point 4"],
+      "description_points": ["Implemented X feature in Y module", "Fixed Z bug in auth flow", "Optimized DB query reducing load by 40%", "Integrated webhook handler with API"],
       "hours": "X Hours",
       "status": "Status of task 1",
       "links": [],
-      "commits": ["commit 1","commit 2","commit 3","commit 4","commit 5"],
-      "modules": ["module 1","module 2","module 3"],
-      "qa_testing": ["test 1","test 2","test 3"],
-      "documentation": ["NA"],
-      "blockers": ["None"],
-      "tomorrow": ["use Tomorrow's Task from input; expand into clear bullet points if given"],
-      "questions": ["use Questions from input as-is; '-' if empty"]
-    }},
-    {{
-      "ticket": "TASK 2 NAME (repeat this object for every additional task)",
-      "description_points": ["point 1","point 2","point 3","point 4"],
-      "hours": "X Hours",
-      "status": "Status of task 2",
-      "links": [],
-      "commits": ["commit 1","commit 2","commit 3"],
-      "modules": ["module 1","module 2"],
-      "qa_testing": ["test 1","test 2"],
-      "documentation": ["NA"],
-      "blockers": ["None"],
-      "tomorrow": ["use Tomorrow's Task from input; expand into clear bullet points if given"],
-      "questions": ["use Questions from input as-is; '-' if empty"]
+      "commits": ["Implemented feature X", "Fixed bug in Y handler", "Refactored Z module", "Deployed update to staging"],
+      "modules": ["Module A", "Feature B", "Screen C"],
+      "qa_testing": ["Tested login flow end-to-end", "Verified API response format", "Checked edge case handling"],
+      "documentation": [],
+      "blockers": [],
+      "tomorrow": [],
+      "questions": []
     }}
   ],
   "meetings": [{{"name":"NA","duration":"NA","purpose":"NA"}}]
@@ -865,7 +875,7 @@ Return JSON with EXACTLY these fields (no markdown, no extra text):
 
 teams_messages MUST be an array of {num_tasks} strings — one complete Teams message per task.
 
-EACH teams_messages[i] FORMAT (for task i):
+EACH teams_messages[i] FORMAT — copy this structure exactly:
 Work Update
 
 Date: {work_date}
@@ -874,34 +884,40 @@ Project/Client Name - [TICKET NAME]
 
     ** Worked on [TICKET NAME]: [Status]
 
-    - [expanded point 1]
-    - [expanded point 2]
-    - [expanded point 3]
-    - [expanded point 4]
-    - [expanded point 5]
-    - [expanded point 6]
+    - [concise technical bullet, 6-12 words, past-tense verb]
+    - [concise technical bullet]
+    - [concise technical bullet]
+    - [concise technical bullet]
+    - [concise technical bullet]
 
 Actual Hours:
     - [X] Hours
 
-Questions:
-    - [use Questions from input as bullet points; just - if empty]
-
-Links:
-    - [links if provided, else just -]
-
+[If Tomorrow's Task is NOT [EMPTY - omit Tomorrow section], include:]
 Tomorrow's Task:
-    - [use Tomorrow's Task from input, expanded professionally; just - if empty]
+    - [task from input as professional bullet]
+
+[If Questions is NOT [EMPTY - omit Questions section], include:]
+Questions:
+    - [question from input]
+
+[If Links is NOT [EMPTY - omit Links section], include:]
+Links:
+    - [link from input]
 
 RULES:
 - teams_messages MUST have {num_tasks} items — one complete message per task, never combine tasks
 - task_summaries MUST have {num_tasks} items — one per task, no exceptions
-- Expand each task description to 4-6 professional bullet points
-- commits: 4-6 past-tense technical actions per task
-- modules: 3-5 specific features worked on per task
-- qa_testing: 3-4 specific tests done per task
-- documentation: ["NA"] unless mentioned
-- blockers: ["None"] unless mentioned
+- Expand each "What I Did Today" into 4-6 precise professional bullet points
+- commits: 4-6 past-tense technical actions per task (e.g. "Refactored authentication middleware")
+- modules: 3-5 specific features/screens/components worked on
+- qa_testing: 3-4 specific tests performed
+- documentation: [] if not mentioned
+- blockers: [] if no blockers mentioned
+- links: [] if input was [EMPTY]; otherwise extract actual URLs as list items
+- tomorrow: [] if input was [EMPTY]; otherwise convert to clear bullet list
+- questions: [] if input was [EMPTY]; otherwise include as-is
+- OMIT Tomorrow's Task / Questions / Links sections from teams_messages if their input was [EMPTY]
 - No meetings → [{{"name":"NA","duration":"NA","purpose":"NA"}}]
 - Return ONLY valid JSON, no markdown fences"""
 
