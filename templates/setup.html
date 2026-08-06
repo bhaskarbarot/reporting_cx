@@ -7,17 +7,18 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Cdefs%3E%3CradialGradient id=%27bg%27 cx=%2750%25%27 cy=%2750%25%27 r=%2750%25%27%3E%3Cstop offset=%270%25%27 stop-color=%27%234f46e5%27/%3E%3Cstop offset=%27100%25%27 stop-color=%27%233730a3%27/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx=%2750%27 cy=%2750%27 r=%2750%27 fill=%27url(%23bg)%27/%3E%3Cg transform=%27translate(50,52)%27%3E%3Cellipse cx=%27-14%27 cy=%27-18%27 rx=%2713%27 ry=%279%27 fill=%27%236366f1%27 transform=%27rotate(-20,-14,-18)%27/%3E%3Cellipse cx=%2714%27 cy=%27-18%27 rx=%2713%27 ry=%279%27 fill=%27%236366f1%27 transform=%27rotate(20,14,-18)%27/%3E%3Cellipse cx=%270%27 cy=%27-8%27 rx=%279%27 ry=%2722%27 fill=%27%234f46e5%27/%3E%3Cellipse cx=%270%27 cy=%27-26%27 rx=%2710%27 ry=%278%27 fill=%27%234338ca%27/%3E%3Ccircle cx=%27-4%27 cy=%27-28%27 r=%272.5%27 fill=%27%23fbbf24%27/%3E%3Ccircle cx=%274%27 cy=%27-28%27 r=%272.5%27 fill=%27%23fbbf24%27/%3E%3Ccircle cx=%27-4%27 cy=%27-28%27 r=%271%27 fill=%27%23000%27/%3E%3Ccircle cx=%274%27 cy=%27-28%27 r=%271%27 fill=%27%23000%27/%3E%3Cpath d=%27M-2,-18 L-4,-13 M2,-18 L4,-13 M-2,-18 L2,-18%27 stroke=%27%23ef4444%27 stroke-width=%271.2%27 fill=%27none%27 stroke-linecap=%27round%27/%3E%3Cpath d=%27M0,14 Q8,22 4,30 Q0,36 -4,32%27 stroke=%27%234f46e5%27 stroke-width=%277%27 fill=%27none%27 stroke-linecap=%27round%27/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root {
-  --primary: #2cc4a8;
-  --primary-dark: #1fa08a;
-  --primary-tint: #edf9f6;
+  --primary: #8F2721;
+  --primary-dark: #6e1d1a;
+  --primary-light: #F26E65;
+  --primary-tint: #fcf1f0;
   --cherry: #8F2721;
   --cherry-light: #F26E65;
   --success: #10b981;
   --danger: #ef4444;
-  --bg: #f6fbfa;
-  --border: #cce8e0;
-  --muted: #5c7870;
-  --text: #1c2b28;
+  --bg: #faf6f5;
+  --border: #f2d8d6;
+  --muted: #785c5a;
+  --text: #2b1c1b;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
@@ -80,13 +81,13 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
   font-size: 0.9rem;
   font-family: inherit;
   color: var(--text);
-  background: #f5faf8;
+  background: #fdf8f7;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .form-group input:focus, .form-group textarea:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(44,196,168,0.15);
+  box-shadow: 0 0 0 3px rgba(143,39,33,0.15);
   background: white;
 }
 .form-group textarea { min-height: 70px; resize: vertical; }
@@ -107,7 +108,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
   gap: 7px;
 }
 .btn-primary { background: var(--primary); color: white; }
-.btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(44,196,168,0.35); }
+.btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(143,39,33,0.35); }
 .btn-success { background: var(--success); color: white; }
 .btn-success:hover { background: #059669; }
 .btn-outline { background: white; color: var(--primary); border: 2px solid var(--primary); }
@@ -145,7 +146,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
 .test-status.err { color: #dc2626; }
 
 .guide-accordion { border: 1.5px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
-.guide-header { display: flex; justify-content: space-between; align-items: center; padding: 13px 18px; cursor: pointer; font-size: 0.88rem; font-weight: 700; color: var(--text); background: #f5faf8; user-select: none; }
+.guide-header { display: flex; justify-content: space-between; align-items: center; padding: 13px 18px; cursor: pointer; font-size: 0.88rem; font-weight: 700; color: var(--text); background: #fdf8f7; user-select: none; }
 .guide-header:hover { background: var(--primary-tint); }
 .guide-header .arr { font-size: 0.7rem; color: var(--muted); transition: transform 0.2s; }
 .guide-body { display: none; padding: 16px 18px 18px; font-size: 0.84rem; line-height: 1.7; color: #334155; background: white; }
@@ -154,7 +155,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
 .guide-body ol li { margin-bottom: 8px; }
 .guide-body code { background: var(--primary-tint); padding: 1px 6px; border-radius: 4px; font-size: 0.82rem; font-family: monospace; color: var(--primary-dark); }
 .guide-body .warn { background: #fff7ed; border: 1.5px solid #fed7aa; border-radius: 8px; padding: 10px 14px; margin: 10px 0; color: #9a3412; font-size: 0.82rem; }
-.guide-body .note { background: var(--primary-tint); border: 1.5px solid #a7d9cf; border-radius: 8px; padding: 10px 14px; margin: 10px 0; color: var(--primary-dark); font-size: 0.82rem; }
+.guide-body .note { background: var(--primary-tint); border: 1.5px solid #f9d5d2; border-radius: 8px; padding: 10px 14px; margin: 10px 0; color: var(--primary-dark); font-size: 0.82rem; }
 </style>
 </head>
 <body>
@@ -221,6 +222,10 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
   <div class="card">
     <div class="section-title">📋 Daily Report Config</div>
     <div class="form-row">
+      <div class="form-group">
+        <label>Your Name (Sender Name) *</label>
+        <input type="text" id="user_name" value="{{ settings.get('user_name','') }}" placeholder="Bhaskar Barot">
+      </div>
       <div class="form-group">
         <label>Reporting Manager Name</label>
         <input type="text" id="reporting_manager" value="{{ settings.get('reporting_manager','') }}" placeholder="Vipinraj Nair Sir">
@@ -402,6 +407,7 @@ function _buildPayload() {
     groq_api_key:      document.getElementById('groq_api_key').value.trim(),
     groq_model:        'llama-3.3-70b-versatile',
     gmail_user:        document.getElementById('gmail_user').value.trim(),
+    user_name:         document.getElementById('user_name').value.trim(),
     reporting_manager: document.getElementById('reporting_manager').value.trim(),
     department:        document.getElementById('department').value.trim(),
     to_email:          document.getElementById('to_email').value.trim(),
@@ -414,6 +420,7 @@ function _buildPayload() {
 function _validatePayload(payload) {
   if (!payload.groq_api_key)      return 'Groq API Key is required';
   if (!payload.gmail_user)        return 'Gmail address is required';
+  if (!payload.user_name)         return 'Your Name (Sender Name) is required';
   if (!payload.reporting_manager) return 'Reporting Manager name is required';
   if (!payload.department)        return 'Department is required';
   if (!payload.to_email)          return 'TO email is required';

@@ -8,25 +8,25 @@
 <style>
 /* ── TOKEN SYSTEM ────────────────────────────────────── */
 :root {
-  --primary: #2cc4a8;
-  --primary-dark: #1fa08a;
-  --primary-light: #7ddfd0;
-  --primary-tint: #edf9f6;
+  --primary: #8F2721;
+  --primary-dark: #6e1d1a;
+  --primary-light: #F26E65;
+  --primary-tint: #fcf1f0;
   --cherry: #8F2721;
   --cherry-dark: #6e1d1a;
   --cherry-light: #F26E65;
-  --cherry-tint: #fef2f1;
+  --cherry-tint: #fcf1f0;
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
-  --bg: #f6fbfa;
+  --bg: #faf6f5;
   --card: #ffffff;
-  --text: #1c2b28;
-  --muted: #5c7870;
-  --border: #cce8e0;
+  --text: #2b1c1b;
+  --muted: #785c5a;
+  --border: #f2d8d6;
   --radius: 12px;
-  --shadow: 0 2px 10px rgba(44,196,168,0.09);
-  --shadow-lg: 0 8px 28px rgba(44,196,168,0.14);
+  --shadow: 0 2px 10px rgba(143,39,33,0.09);
+  --shadow-lg: 0 8px 28px rgba(143,39,33,0.14);
   --shadow-cherry: 0 6px 22px rgba(143,39,33,0.32);
 }
 
@@ -344,7 +344,7 @@ body {
 }
 .teams-box::-webkit-scrollbar { width: 6px; }
 .teams-box::-webkit-scrollbar-track { background: #1a2e28; border-radius: 3px; }
-.teams-box::-webkit-scrollbar-thumb { background: #2cc4a850; border-radius: 3px; }
+.teams-box::-webkit-scrollbar-thumb { background: #8F272150; border-radius: 3px; }
 
 .email-frame { width: 100%; height: 460px; border: none; border-radius: 10px; background: white; }
 
@@ -410,6 +410,59 @@ body {
 }
 .empty-state { text-align: center; padding: 50px 20px; color: var(--muted); }
 .empty-state .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+
+.pagination-wrap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 4px 4px;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}
+.pagination-info {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pagination-btn {
+  padding: 6px 12px;
+  border: 1.5px solid var(--border);
+  background: white;
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--cherry);
+  color: var(--cherry);
+  background: rgba(143, 39, 33, 0.05);
+}
+.pagination-btn.active {
+  background: var(--cherry);
+  color: white;
+  border-color: var(--cherry);
+  box-shadow: 0 2px 6px rgba(143, 39, 33, 0.3);
+}
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pagination-ellipsis {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0 4px;
+}
 
 /* ── MODAL ────────────────────────────────────────────── */
 .modal-overlay {
@@ -710,6 +763,7 @@ const ATTACH_ICON_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="n
 
 // ─── DRAFT (localStorage) ───────────────────────────────
 const DRAFT_KEY = 'dailyUpdateDraft';
+const LAST_TICKETS_KEY = 'lastSavedTickets';
 
 function saveDraft() {
   const tasks = [];
@@ -721,13 +775,25 @@ function saveDraft() {
     });
   });
   localStorage.setItem(DRAFT_KEY, JSON.stringify(tasks));
+  const validTickets = tasks.map(t => (t.ticket || '').trim()).filter(Boolean);
+  if (validTickets.length) {
+    localStorage.setItem(LAST_TICKETS_KEY, JSON.stringify(validTickets));
+  }
 }
 
 function loadDraft() {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
-    if (!raw) return false;
-    const tasks = JSON.parse(raw);
+    let tasks = raw ? JSON.parse(raw) : null;
+    if (!tasks || !tasks.length) {
+      const lastRaw = localStorage.getItem(LAST_TICKETS_KEY);
+      if (lastRaw) {
+        const lastTickets = JSON.parse(lastRaw);
+        if (lastTickets && lastTickets.length) {
+          tasks = lastTickets.map(t => ({ ticket: t, status: 'In Progress' }));
+        }
+      }
+    }
     if (!tasks || !tasks.length) return false;
     tasks.forEach(t => {
       taskSeq++;
@@ -738,7 +804,7 @@ function loadDraft() {
       div.id = 'task-' + n;
       div.innerHTML = _taskHTML(n);
       wrap.appendChild(div);
-      // Only restore ticket name and status — daily fields stay blank
+      // Restore ticket name and status
       document.getElementById('tk-'+n).value = t.ticket || '';
       document.getElementById('st-'+n).value = t.status || 'In Progress';
     });
@@ -753,12 +819,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadUserSettings();
   checkDriveStatus();
   if (!loadDraft()) addTask();
-  // Only save draft when ticket name or status changes
-  document.getElementById('tasksContainer').addEventListener('input', e => {
-    if (e.target.id && e.target.id.startsWith('tk-')) saveDraft();
-  });
-  document.getElementById('tasksContainer').addEventListener('change', e => {
-    if (e.target.id && e.target.id.startsWith('st-')) saveDraft();
+
+  const container = document.getElementById('tasksContainer');
+  ['input', 'change', 'blur', 'paste'].forEach(evt => {
+    container.addEventListener(evt, e => {
+      if (e.target && e.target.id && (e.target.id.startsWith('tk-') || e.target.id.startsWith('st-'))) {
+        saveDraft();
+      }
+    });
   });
 });
 
@@ -955,9 +1023,10 @@ function showAC(n, val) {
   if (!val || !savedTickets.length) { list.style.display = 'none'; return; }
   const matches = savedTickets.filter(t => t.toLowerCase().includes(val.toLowerCase()));
   if (!matches.length) { list.style.display = 'none'; return; }
-  list.innerHTML = matches.map(t =>
-    `<div class="ac-item" onmousedown="pickAC(${n},'${t}')">${t}</div>`
-  ).join('');
+  list.innerHTML = matches.map(t => {
+    const safeTicket = t.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return `<div class="ac-item" onmousedown="pickAC(${n},'${safeTicket}')">${escHtml(t)}</div>`;
+  }).join('');
   list.style.display = 'block';
 }
 function hideAC(n) { setTimeout(() => { const l = document.getElementById('ac-'+n); if(l) l.style.display='none'; }, 200); }
@@ -971,6 +1040,7 @@ function pickAC(n, val, fromPin) {
     if(st) st.value = 'In Progress';
     document.getElementById('ds-'+n)?.focus();
   }
+  saveDraft();
 }
 
 // ─── MEETINGS ────────────────────────────────────────────
@@ -1365,6 +1435,10 @@ function copyTeams() {
 }
 
 // ─── HISTORY ─────────────────────────────────────────────
+let historyRecords = [];
+let currentHistoryPage = 1;
+const HISTORY_PER_PAGE = 10;
+
 async function loadHistory() {
   const body = document.getElementById('historyBody');
   body.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading...</p></div>';
@@ -1373,37 +1447,95 @@ async function loadHistory() {
     const data = await res.json();
 
     if (!data.records || !data.records.length) {
+      historyRecords = [];
       body.innerHTML = '<div class="empty-state"><div class="empty-icon">📂</div><p>No history yet. Generate your first update!</p></div>';
       return;
     }
 
-    const rows = data.records.map(r => {
-      const chips = (r.tickets || []).map(t => `<span class="ticket-chip">${t}</span>`).join('');
-      const attachBtn = r.attachment_drive_url
-        ? `<a href="/api/download/attachment/${r.date}" target="_blank" class="btn btn-outline btn-sm" style="margin:2px;text-decoration:none;" title="${escHtml(r.attachment_filename || 'Attachment')}">${ATTACH_ICON_SVG} Attachment</a>`
-        : '';
-      return `<tr>
-        <td><strong>${r.display_date || r.date}</strong></td>
-        <td>${r.task_count || 0} task${(r.task_count||0)!==1?'s':''}</td>
-        <td>${chips || '<span style="color:var(--muted);">-</span>'}</td>
-        <td style="white-space:nowrap;">
-          <button class="btn btn-ghost btn-sm" onclick="viewTeams('${r.date}')" style="margin:2px;">👁 View</button>
-          <a href="/api/download/teams/${r.date}" class="btn btn-ghost btn-sm" style="margin:2px;text-decoration:none;">⬇ TXT</a>
-          <a href="/api/download/mail/${r.date}" class="btn btn-outline btn-sm" style="margin:2px;text-decoration:none;">⬇ DOCX</a>
-          ${attachBtn}
-        </td>
-      </tr>`;
-    }).join('');
+    historyRecords = data.records;
+    renderHistoryPage(1);
+  } catch(e) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><p>Failed to load history</p></div>';
+  }
+}
 
-    body.innerHTML = `<table class="history-table">
+function renderHistoryPage(page) {
+  const body = document.getElementById('historyBody');
+  if (!historyRecords || !historyRecords.length) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-icon">📂</div><p>No history yet. Generate your first update!</p></div>';
+    return;
+  }
+
+  const totalRecords = historyRecords.length;
+  const totalPages = Math.ceil(totalRecords / HISTORY_PER_PAGE) || 1;
+
+  if (page < 1) page = 1;
+  if (page > totalPages) page = totalPages;
+  currentHistoryPage = page;
+
+  const startIdx = (page - 1) * HISTORY_PER_PAGE;
+  const endIdx = Math.min(startIdx + HISTORY_PER_PAGE, totalRecords);
+  const pageRecords = historyRecords.slice(startIdx, endIdx);
+
+  const rows = pageRecords.map(r => {
+    const chips = (r.tickets || []).map(t => `<span class="ticket-chip">${escHtml(t)}</span>`).join('');
+    const attachBtn = r.attachment_drive_url
+      ? `<a href="/api/download/attachment/${r.date}" target="_blank" class="btn btn-outline btn-sm" style="margin:2px;text-decoration:none;" title="${escHtml(r.attachment_filename || 'Attachment')}">${ATTACH_ICON_SVG} Attachment</a>`
+      : '';
+    return `<tr>
+      <td><strong>${escHtml(r.display_date || r.date)}</strong></td>
+      <td>${r.task_count || 0} task${(r.task_count||0)!==1?'s':''}</td>
+      <td>${chips || '<span style="color:var(--muted);">-</span>'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="viewTeams('${r.date}')" style="margin:2px;">👁 View</button>
+        <a href="/api/download/teams/${r.date}" class="btn btn-ghost btn-sm" style="margin:2px;text-decoration:none;">⬇ TXT</a>
+        <a href="/api/download/mail/${r.date}" class="btn btn-outline btn-sm" style="margin:2px;text-decoration:none;">⬇ DOCX</a>
+        ${attachBtn}
+      </td>
+    </tr>`;
+  }).join('');
+
+  let pageButtonsHTML = '';
+  let startPage = Math.max(1, currentHistoryPage - 2);
+  let endPage = Math.min(totalPages, startPage + 4);
+  if (endPage - startPage < 4) {
+    startPage = Math.max(1, endPage - 4);
+  }
+
+  pageButtonsHTML += `<button class="pagination-btn" ${currentHistoryPage === 1 ? 'disabled' : ''} onclick="renderHistoryPage(${currentHistoryPage - 1})">◀ Prev</button>`;
+
+  if (startPage > 1) {
+    pageButtonsHTML += `<button class="pagination-btn" onclick="renderHistoryPage(1)">1</button>`;
+    if (startPage > 2) {
+      pageButtonsHTML += `<span class="pagination-ellipsis">...</span>`;
+    }
+  }
+
+  for (let p = startPage; p <= endPage; p++) {
+    pageButtonsHTML += `<button class="pagination-btn ${p === currentHistoryPage ? 'active' : ''}" onclick="renderHistoryPage(${p})">${p}</button>`;
+  }
+
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) {
+      pageButtonsHTML += `<span class="pagination-ellipsis">...</span>`;
+    }
+    pageButtonsHTML += `<button class="pagination-btn" onclick="renderHistoryPage(${totalPages})">${totalPages}</button>`;
+  }
+
+  pageButtonsHTML += `<button class="pagination-btn" ${currentHistoryPage === totalPages ? 'disabled' : ''} onclick="renderHistoryPage(${currentHistoryPage + 1})">Next ▶</button>`;
+
+  body.innerHTML = `
+    <table class="history-table">
       <thead><tr>
         <th>Date</th><th>Tasks</th><th>Tickets</th><th>Actions</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
-  } catch(e) {
-    body.innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><p>Failed to load history</p></div>';
-  }
+    </table>
+    <div class="pagination-wrap">
+      <div class="pagination-info">Showing ${startIdx + 1}–${endIdx} of ${totalRecords} records (Page ${currentHistoryPage} of ${totalPages})</div>
+      <div class="pagination-controls">${pageButtonsHTML}</div>
+    </div>
+  `;
 }
 
 async function rebuildHistory() {

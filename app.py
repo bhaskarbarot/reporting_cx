@@ -12,6 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+from email.utils import formataddr
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, redirect, session, abort
 from groq import Groq
@@ -269,7 +270,7 @@ def _decode_attachment(attachment_in):
         'bytes':     file_bytes,
     }, None
 
-def send_via_gmail_api(sender_email, to_emails, subject, html_body, attachment=None):
+def send_via_gmail_api(sender_email, to_emails, subject, html_body, attachment=None, sender_name=None):
     """Send email via Gmail API using raw urllib — no discovery doc download needed."""
     import urllib.request as _req, urllib.error
     S = Query()
@@ -307,7 +308,10 @@ def send_via_gmail_api(sender_email, to_emails, subject, html_body, attachment=N
         msg = MIMEMultipart('alternative')
         msg.attach(MIMEText(html_body, 'html'))
     msg['Subject'] = subject
-    msg['From']    = sender_email
+    if sender_name:
+        msg['From'] = formataddr((sender_name, sender_email))
+    else:
+        msg['From'] = sender_email
     msg['To']      = to_emails[0] if to_emails else ''
     if len(to_emails) > 1:
         msg['Cc'] = ', '.join(to_emails[1:])
@@ -328,13 +332,13 @@ def send_via_gmail_api(sender_email, to_emails, subject, html_body, attachment=N
         body = e.read().decode('utf-8', errors='replace')
         raise Exception(f"Gmail API {e.code}: {body}")
 
-def _send_raw_email(from_user, from_pass, to_email, subject, html_body, cc_emails=None, attachment=None):
+def _send_raw_email(from_user, from_pass, to_email, subject, html_body, cc_emails=None, attachment=None, sender_name=None):
     all_rcpt = [to_email] + (cc_emails or [])
     last_err = None
 
     # Try Gmail API first (works on Railway via HTTPS, appears in Sent folder)
     try:
-        send_via_gmail_api(ADMIN_EMAIL, all_rcpt, subject, html_body, attachment=attachment)
+        send_via_gmail_api(ADMIN_EMAIL, all_rcpt, subject, html_body, attachment=attachment, sender_name=sender_name)
         return  # success
     except Exception as e:
         last_err = e  # Drive not connected or scope missing — try SMTP next
@@ -351,7 +355,10 @@ def _send_raw_email(from_user, from_pass, to_email, subject, html_body, cc_email
                 msg = MIMEMultipart('alternative')
                 msg.attach(MIMEText(html_body, 'html'))
             msg['Subject'] = subject
-            msg['From']    = from_user
+            if sender_name:
+                msg['From'] = formataddr((sender_name, from_user))
+            else:
+                msg['From'] = from_user
             msg['To']      = to_email
             if cc_emails:
                 msg['Cc'] = ', '.join(cc_emails)
@@ -1423,9 +1430,13 @@ def api_send_email():
         full_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:20px;font-family:Arial,sans-serif;">{email_html}</body></html>"""
 
+        sender_name = s.get('user_name') or s.get('sender_name') or s.get('employee_name') or ''
+        if not sender_name and gmail_user:
+            sender_name = gmail_user.split('@')[0].replace('.', ' ').replace('_', ' ').title()
+
         all_recipients = [to_email] + cc_emails
         try:
-            send_via_gmail_api(email, all_recipients, email_subject, full_html, attachment=attachment)
+            send_via_gmail_api(email, all_recipients, email_subject, full_html, attachment=attachment, sender_name=sender_name)
             return jsonify({'success': True, 'message': 'Email sent! Check your Gmail Sent folder.'})
         except Exception as api_err:
             print(f"⚠️  Gmail API error for {email}: {api_err}")
@@ -1433,7 +1444,7 @@ def api_send_email():
             # Try SMTP fallback (works on local dev, fails on Railway — reported to user)
             try:
                 _send_raw_email(gmail_user, gmail_pass, to_email,
-                                email_subject, full_html, cc_emails=cc_emails, attachment=attachment)
+                                email_subject, full_html, cc_emails=cc_emails, attachment=attachment, sender_name=sender_name)
                 return jsonify({'success': True, 'message': 'Email sent!'})
             except Exception:
                 return jsonify({'success': False, 'error': f'Email failed: {err}'}), 500
