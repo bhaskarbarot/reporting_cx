@@ -732,7 +732,9 @@ def build_email_html(work_date, form_data, llm_result, user_email):
 
         links_html = ""
         if _meaningful(ts.get('links', [])):
-            links_html = "<p><b>Links:</b></p><ul>" + "".join(f"<li>{l}</li>" for l in ts['links']) + "</ul>"
+            links_html += "<p><b>Links:</b></p><ul>" + "".join(f"<li>{l}</li>" for l in ts['links']) + "</ul>"
+        if _meaningful(ts.get('screenshots_links', [])):
+            links_html += "<p><b>Screenshots:</b></p><ul>" + "".join(f"<li>{l}</li>" for l in ts['screenshots_links']) + "</ul>"
 
         deliverables_label = ts.get('deliverables_label', 'Commits Completed')
         summaries += f"\n<p><b>{ts['ticket']}</b></p>\n{links_html}"
@@ -808,9 +810,10 @@ def call_llm(form_data, user_email):
         def _has_content(v):
             s = (v or '').strip()
             return bool(s) and s.lstrip('-').strip() != ''
-        links_val     = (task.get('links', '') or '').strip()
-        tomorrow_val  = (task.get('tomorrow_task', '') or '').strip()
-        questions_val = (task.get('questions', '') or '').strip()
+        links_val       = (task.get('links', '') or '').strip()
+        screenshots_val = (task.get('screenshots_links', '') or '').strip()
+        tomorrow_val    = (task.get('tomorrow_task', '') or '').strip()
+        questions_val   = (task.get('questions', '') or '').strip()
         tasks_text += f"""
 Task {i}:
 - Ticket/Project Name: {task.get('ticket','N/A')}
@@ -818,6 +821,7 @@ Task {i}:
 - Hours Spent: {task.get('hours','N/A')}
 - Status: {task.get('status','N/A')}
 - Links: {links_val if _has_content(links_val) else '[EMPTY - omit Links section]'}
+- Screenshots Links: {screenshots_val if _has_content(screenshots_val) else '[EMPTY - omit Screenshots section]'}
 - Tomorrow's Task: {tomorrow_val if _has_content(tomorrow_val) else '[EMPTY - omit Tomorrow section]'}
 - Questions: {questions_val if _has_content(questions_val) else '[EMPTY - omit Questions section]'}
 """
@@ -903,6 +907,7 @@ Return JSON with EXACTLY these fields (no markdown, no extra text):
       "hours": "X Hours",
       "status": "In Progress",
       "links": [],
+      "screenshots_links": [],
       "commits": ["Documented memory architecture findings", "Produced memory type comparison matrix", "Evaluated Langgraph PyTorch integration options"],
       "modules": ["Shared Memory Architecture", "Langgraph Memory Integration", "PyTorch Compatibility Analysis"],
       "qa_testing": ["Cross-referenced findings with latest official Langgraph documentation.", "Evaluated memory solutions against scalability requirements for 60+ agents.", "Reviewed PyTorch-Langgraph compatibility against project constraints."],
@@ -958,6 +963,7 @@ RULES:
 - documentation: [] unless explicitly mentioned
 - blockers: [] unless blockers mentioned
 - links: [] if [EMPTY], otherwise list actual URLs
+- screenshots_links: [] if [EMPTY], otherwise list the screenshot URLs as provided
 - tomorrow: [] if [EMPTY], otherwise expand each point into professional sentences
 - questions: [] if [EMPTY], otherwise include as-is
 - OMIT Tomorrow's Task / Questions / Links from teams_messages if their input was [EMPTY]

@@ -12,10 +12,10 @@
   --primary-dark: #1fa08a;
   --primary-light: #7ddfd0;
   --primary-tint: #edf9f6;
-  --cherry: #982828;
-  --cherry-dark: #7a1e1e;
-  --cherry-light: #c04040;
-  --cherry-tint: #fdf3f3;
+  --cherry: #8F2721;
+  --cherry-dark: #6e1d1a;
+  --cherry-light: #F26E65;
+  --cherry-tint: #fef2f1;
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -27,7 +27,7 @@
   --radius: 12px;
   --shadow: 0 2px 10px rgba(44,196,168,0.09);
   --shadow-lg: 0 8px 28px rgba(44,196,168,0.14);
-  --shadow-cherry: 0 6px 22px rgba(152,40,40,0.32);
+  --shadow-cherry: 0 6px 22px rgba(143,39,33,0.32);
 }
 
 /* ── BASE ─────────────────────────────────────────────── */
@@ -79,7 +79,7 @@ body {
 
 /* ── HEADER ───────────────────────────────────────────── */
 .header {
-  background: linear-gradient(120deg, #7a1e1e 0%, #982828 35%, #b83535 65%, #982828 100%);
+  background: linear-gradient(120deg, #6e1d1a 0%, #8F2721 35%, #F26E65 65%, #8F2721 100%);
   background-size: 300% 300%;
   animation: headerShimmer 8s ease infinite;
   color: white;
@@ -87,7 +87,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 4px 20px rgba(152,40,40,0.4);
+  box-shadow: 0 4px 20px rgba(143,39,33,0.4);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -285,7 +285,7 @@ body {
   letter-spacing: 0.3px;
 }
 .btn-generate:hover {
-  box-shadow: 0 12px 32px rgba(152,40,40,0.55);
+  box-shadow: 0 12px 32px rgba(143,39,33,0.55);
   transform: translateY(-2px);
   animation: none;
 }
@@ -841,7 +841,7 @@ function _taskHTML(n) {
     <div class="form-row">
       <div class="form-group ac-wrapper">
         <label>Task / Ticket Name *</label>
-        <input type="text" id="tk-${n}" placeholder="e.g. JRR2206, AKV2008"
+        <input type="text" id="tk-${n}" placeholder="e.g. TASK-001"
                autocomplete="off"
                oninput="showAC(${n}, this.value)"
                onblur="hideAC(${n})">
@@ -865,9 +865,7 @@ function _taskHTML(n) {
     </div>
     <div class="form-group" style="margin-bottom:12px;">
       <label>What I Did Today * &nbsp;<span style="font-weight:400;text-transform:none;letter-spacing:0;">(3-4 lines · AI will expand professionally)</span></label>
-      <textarea id="ds-${n}" placeholder="- Optimized n8n workflows for voice agent
-- Reviewed GHL settings and tested booking workflows
-- Improved Cal.com integration logic and refined AI prompts"
+      <textarea id="ds-${n}" placeholder="- Reviewed integration logic and tested end-to-end flow&#10;- Updated API configuration and validated responses&#10;- Documented findings and updated task tracker"
         onkeydown="bulletTyping(event, this)"
         onfocus="initBullet(this)"></textarea>
     </div>
@@ -876,16 +874,20 @@ function _taskHTML(n) {
       <input type="text" id="lk-${n}" placeholder="https://app.example.com">
     </div>
     <div class="form-group" style="margin-bottom:12px;">
+      <label>Screenshots Links <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="sc-${n}" placeholder="https://drive.google.com/screenshots">
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Questions <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <textarea id="qu-${n}" placeholder="-"
+        onkeydown="bulletTyping(event, this)"
+        onfocus="initBullet(this)" style="min-height:70px;"></textarea>
+    </div>
+    <div class="form-group" style="margin-bottom:0;">
       <label>Tomorrow's Task <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
       <textarea id="nt-${n}"
         onkeydown="bulletTyping(event, this)"
         onfocus="initBullet(this)" style="min-height:70px;">- Continue with the further tasks.</textarea>
-    </div>
-    <div class="form-group" style="margin-bottom:0;">
-      <label>Questions <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
-      <textarea id="qu-${n}" placeholder="- Any blockers to discuss?&#10;- Need clarification on scope?"
-        onkeydown="bulletTyping(event, this)"
-        onfocus="initBullet(this)" style="min-height:70px;"></textarea>
     </div>`;
 }
 
@@ -989,7 +991,7 @@ function addMeeting() {
   div.style.marginBottom = '10px';
   div.innerHTML = `
     <div class="task-top" style="margin-bottom:10px;">
-      <span class="task-badge" style="background:var(--cherry);box-shadow:0 2px 8px rgba(152,40,40,0.25);">Meeting ${n}</span>
+      <span class="task-badge" style="background:var(--cherry);box-shadow:0 2px 8px rgba(143,39,33,0.25);">Meeting ${n}</span>
       <button class="btn-danger-ghost" onclick="document.getElementById('meet-${n}').remove()">✕ Remove</button>
     </div>
     <div class="form-row" style="margin-bottom:0;">
@@ -1021,9 +1023,10 @@ function collectForm() {
       description: (document.getElementById('ds-'+n)?.value || '').trim(),
       status: document.getElementById('st-'+n)?.value || 'In Progress',
       hours:         (document.getElementById('hr-'+n)?.value || '').trim() || 'N/A',
-      links:         (document.getElementById('lk-'+n)?.value || '').trim(),
-      tomorrow_task: (document.getElementById('nt-'+n)?.value || '').trim(),
-      questions:     (document.getElementById('qu-'+n)?.value || '').trim()
+      links:             (document.getElementById('lk-'+n)?.value || '').trim(),
+      screenshots_links: (document.getElementById('sc-'+n)?.value || '').trim(),
+      tomorrow_task:     (document.getElementById('nt-'+n)?.value || '').trim(),
+      questions:         (document.getElementById('qu-'+n)?.value || '').trim()
     });
   });
 
