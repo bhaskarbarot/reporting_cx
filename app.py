@@ -734,8 +734,9 @@ def build_email_html(work_date, form_data, llm_result, user_email):
         if _meaningful(ts.get('links', [])):
             links_html = "<p><b>Links:</b></p><ul>" + "".join(f"<li>{l}</li>" for l in ts['links']) + "</ul>"
 
+        deliverables_label = ts.get('deliverables_label', 'Commits Completed')
         summaries += f"\n<p><b>{ts['ticket']}</b></p>\n{links_html}"
-        summaries += f"<p><b>Commits completed:</b></p><ul>{li(ts.get('commits',['N/A']))}</ul>"
+        summaries += f"<p><b>{deliverables_label}:</b></p><ul>{li(ts.get('commits',['N/A']))}</ul>"
         summaries += f"<p><b>Modules/screens/features worked on:</b></p><ul>{li(ts.get('modules',['N/A']))}</ul>"
         summaries += f"<p><b>QA/testing done:</b></p><ul>{li(ts.get('qa_testing',['N/A']))}</ul>"
 
@@ -826,14 +827,48 @@ Task {i}:
         meetings_text = "No meetings today."
 
     num_tasks = len(tasks)
-    prompt = f"""You are a precise AIML developer assistant. Format the daily work update into professional JSON.
+    prompt = f"""You are a professional AIML developer assistant. Format the daily work update into a detailed, professional JSON report.
 
-WRITING RULES (follow strictly):
-- All bullet points: concise, technical, direct — 6 to 12 words each
-- Start every bullet with a past-tense action verb: "Implemented", "Fixed", "Optimized", "Integrated", "Resolved", "Deployed", "Refactored", "Debugged", "Tested", "Configured"
-- BANNED filler: "I was able to", "Successfully", "Worked on implementing", "In this task I", "I have", "Basically", "Was able to"
-- Be specific to the actual task — no generic filler content
-- If a field says [EMPTY - omit ... section]: exclude that entire section from teams_messages and set it to [] in JSON
+WRITING STYLE — follow every rule below:
+
+ACTION VERBS — always use strong, specific verbs. Replace vague words before writing:
+  "checked" → reviewed / evaluated / analyzed / examined
+  "looked into" → investigated / researched / explored
+  "worked on" → developed / designed / built / implemented / optimized
+  "did" → conducted / performed / executed
+  "went through" → reviewed / studied / analyzed
+
+DESCRIPTION POINTS — outcome-focused, not task repetition:
+  Each input bullet becomes ONE full professional sentence (15-25 words).
+  Focus on the OUTCOME or finding, not just the activity.
+  BAD: "Researched memory types that can be added to enable agents to use memory."
+  GOOD: "Identified optimal shared-memory architecture to unify conversation context uniformly across 60+ agents."
+  BAD: "Checked available LLMs and added routing."
+  GOOD: "Evaluated available LLMs and implemented intelligent routing logic to direct each request to the optimal model."
+
+DELIVERABLES (commits field):
+  Concise past-tense action phrases (4-8 words). Outcome-oriented, no vague verbs.
+  For research tasks: document outputs, findings, comparisons (e.g. "Documented memory architecture findings", "Produced framework comparison matrix").
+  For code tasks: technical actions (e.g. "Implemented LLM routing logic", "Deployed Redis cache layer").
+
+TASK TYPE — classify each task:
+  Set "task_type": "research" when the task is R&D, investigation, documentation, comparison, or analysis.
+  Set "task_type": "development" when the task is coding, building, deploying, or testing software.
+  Set "deliverables_label": "Deliverables Completed" for research tasks, "Commits Completed" for development tasks.
+
+MODULES — specific component/feature/artifact names only. For research: name the specific artifact or area studied.
+
+QA / VALIDATION:
+  For research tasks: generate MEANINGFUL validation activities, not fake test entries.
+    Good: "Cross-referenced findings with latest official Langgraph documentation."
+    Good: "Evaluated framework maturity based on community adoption and benchmark comparisons."
+    Bad: "Tested Langgraph integration", "Validated memory type research" (these are meaningless for R&D).
+  For development tasks: specific tests actually performed on the code/system.
+
+TOMORROW — expand each point into a professional planning sentence (15-20 words each).
+TEAMS BULLETS — full professional sentences (15-25 words), outcome-focused, strong verbs.
+BANNED: "I was able to", "Successfully", "In this task I", "I have completed", "Basically", "Was able to", "checked".
+If a field says [EMPTY - omit ... section]: skip that section in teams_messages and set [] in JSON.
 
 Date: {work_date}
 Department: {dept}
@@ -847,23 +882,30 @@ Tasks:
 Meetings:
 {meetings_text}
 
-CRITICAL: There are {num_tasks} task(s) above. You MUST return EXACTLY {num_tasks} entries in task_summaries — one for each task. Do NOT skip or merge any task.
+CRITICAL: There are {num_tasks} task(s). Return EXACTLY {num_tasks} entries in task_summaries and teams_messages. Never skip or merge tasks.
 
 Return JSON with EXACTLY these fields (no markdown, no extra text):
 
 {{
-  "teams_messages": ["separate Teams message for task 1", "separate Teams message for task 2"],
+  "teams_messages": ["full teams message for task 1", "full teams message for task 2"],
   "email_subject": "ATTENDANCE: {work_date}",
   "task_summaries": [
     {{
-      "ticket": "TASK 1 NAME",
-      "description_points": ["Implemented X feature in Y module", "Fixed Z bug in auth flow", "Optimized DB query reducing load by 40%", "Integrated webhook handler with API"],
+      "ticket": "TASK NAME",
+      "task_type": "research",
+      "deliverables_label": "Deliverables Completed",
+      "description_points": [
+        "Identified optimal shared-memory architecture to unify conversation context across 60+ agents.",
+        "Completed deep R&D on memory types and produced a structured reference document.",
+        "Evaluated agentic terminology and Langgraph with PyTorch to determine trending memory solutions.",
+        "Concluded R&D phase with actionable recommendations for memory feature integration."
+      ],
       "hours": "X Hours",
-      "status": "Status of task 1",
+      "status": "In Progress",
       "links": [],
-      "commits": ["Implemented feature X", "Fixed bug in Y handler", "Refactored Z module", "Deployed update to staging"],
-      "modules": ["Module A", "Feature B", "Screen C"],
-      "qa_testing": ["Tested login flow end-to-end", "Verified API response format", "Checked edge case handling"],
+      "commits": ["Documented memory architecture findings", "Produced memory type comparison matrix", "Evaluated Langgraph PyTorch integration options"],
+      "modules": ["Shared Memory Architecture", "Langgraph Memory Integration", "PyTorch Compatibility Analysis"],
+      "qa_testing": ["Cross-referenced findings with latest official Langgraph documentation.", "Evaluated memory solutions against scalability requirements for 60+ agents.", "Reviewed PyTorch-Langgraph compatibility against project constraints."],
       "documentation": [],
       "blockers": [],
       "tomorrow": [],
@@ -873,9 +915,7 @@ Return JSON with EXACTLY these fields (no markdown, no extra text):
   "meetings": [{{"name":"NA","duration":"NA","purpose":"NA"}}]
 }}
 
-teams_messages MUST be an array of {num_tasks} strings — one complete Teams message per task.
-
-EACH teams_messages[i] FORMAT — copy this structure exactly:
+teams_messages MUST be {num_tasks} string(s). EACH teams_messages[i] FORMAT — use this structure exactly:
 Work Update
 
 Date: {work_date}
@@ -884,40 +924,43 @@ Project/Client Name - [TICKET NAME]
 
     ** Worked on [TICKET NAME]: [Status]
 
-    - [concise technical bullet, 6-12 words, past-tense verb]
-    - [concise technical bullet]
-    - [concise technical bullet]
-    - [concise technical bullet]
-    - [concise technical bullet]
+    - [Full professional sentence 15-25 words expanding on point 1]
+    - [Full professional sentence expanding on point 2]
+    - [Full professional sentence expanding on point 3]
+    - [Full professional sentence expanding on point 4]
+    - [Full professional sentence expanding on point 5]
 
 Actual Hours:
     - [X] Hours
 
-[If Tomorrow's Task is NOT [EMPTY - omit Tomorrow section], include:]
+[Include only if Tomorrow's Task is NOT [EMPTY - omit Tomorrow section]:]
 Tomorrow's Task:
-    - [task from input as professional bullet]
+    - [Expand to professional planning sentence]
+    - [Another expanded planning sentence if multiple points]
 
-[If Questions is NOT [EMPTY - omit Questions section], include:]
+[Include only if Questions is NOT [EMPTY - omit Questions section]:]
 Questions:
     - [question from input]
 
-[If Links is NOT [EMPTY - omit Links section], include:]
+[Include only if Links is NOT [EMPTY - omit Links section]:]
 Links:
     - [link from input]
 
 RULES:
-- teams_messages MUST have {num_tasks} items — one complete message per task, never combine tasks
-- task_summaries MUST have {num_tasks} items — one per task, no exceptions
-- Expand each "What I Did Today" into 4-6 precise professional bullet points
-- commits: 4-6 past-tense technical actions per task (e.g. "Refactored authentication middleware")
-- modules: 3-5 specific features/screens/components worked on
-- qa_testing: 3-4 specific tests performed
-- documentation: [] if not mentioned
-- blockers: [] if no blockers mentioned
-- links: [] if input was [EMPTY]; otherwise extract actual URLs as list items
-- tomorrow: [] if input was [EMPTY]; otherwise convert to clear bullet list
-- questions: [] if input was [EMPTY]; otherwise include as-is
-- OMIT Tomorrow's Task / Questions / Links sections from teams_messages if their input was [EMPTY]
+- teams_messages MUST have {num_tasks} items — one per task, never combine
+- task_summaries MUST have {num_tasks} items — one per task
+- Each input bullet point → one outcome-focused description_points sentence (do not merge or drop any)
+- task_type: "research" or "development" per task
+- deliverables_label: "Deliverables Completed" for research, "Commits Completed" for development
+- commits / deliverables: 5-7 concise outcome-oriented past-tense phrases per task
+- modules: 4-7 specific components/features/artifacts (for research: specific topics or documents produced)
+- qa_testing: 4-6 meaningful validation sentences — for research: cross-referencing, evaluation, comparison activities, NOT fake "Tested X" entries
+- documentation: [] unless explicitly mentioned
+- blockers: [] unless blockers mentioned
+- links: [] if [EMPTY], otherwise list actual URLs
+- tomorrow: [] if [EMPTY], otherwise expand each point into professional sentences
+- questions: [] if [EMPTY], otherwise include as-is
+- OMIT Tomorrow's Task / Questions / Links from teams_messages if their input was [EMPTY]
 - No meetings → [{{"name":"NA","duration":"NA","purpose":"NA"}}]
 - Return ONLY valid JSON, no markdown fences"""
 
@@ -1260,8 +1303,19 @@ def api_generate():
     try:
         email     = get_current_user()
         form_data = request.json
+        att = (form_data.get('attendance_hours') or '').strip()
+        prod = (form_data.get('productive_hours') or '').strip()
+        if not att or att == 'N/A':
+            return jsonify({'success': False, 'error': 'Total Attendance Hours is required.'}), 400
+        if not prod or prod == 'N/A':
+            return jsonify({'success': False, 'error': 'Total Productive Hours is required.'}), 400
         if not form_data.get('tasks'):
             return jsonify({'success': False, 'error': 'No tasks provided'}), 400
+        for t in form_data['tasks']:
+            if not (t.get('description') or '').strip():
+                return jsonify({'success': False, 'error': f'Task "{t.get("ticket","?")}": What I Did Today is required.'}), 400
+            if not (t.get('hours') or '').strip() or (t.get('hours') or '').strip() == 'N/A':
+                return jsonify({'success': False, 'error': f'Task "{t.get("ticket","?")}": Hours Spent is required.'}), 400
 
         llm_result = call_llm(form_data, email)
         work_date  = form_data.get('date', get_working_date())

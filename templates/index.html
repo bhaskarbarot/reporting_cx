@@ -1047,9 +1047,32 @@ function collectForm() {
 // ─── GENERATE ────────────────────────────────────────────
 async function generateUpdate() {
   const form = collectForm();
-  if (!form.tasks.length) {
-    showToast('error', 'Add at least one task with a ticket name!');
+
+  // ── Required field validation ──
+  if (!form.attendance_hours || form.attendance_hours === 'N/A') {
+    showToast('error', 'Please fill Total Attendance Hours before generating.');
+    document.getElementById('attendanceHours').focus();
     return;
+  }
+  if (!form.productive_hours || form.productive_hours === 'N/A') {
+    showToast('error', 'Please fill Total Productive Hours before generating.');
+    document.getElementById('productiveHours').focus();
+    return;
+  }
+  if (!form.tasks.length) {
+    showToast('error', 'Please add at least one task with a Ticket / Task Name.');
+    return;
+  }
+  for (let i = 0; i < form.tasks.length; i++) {
+    const t = form.tasks[i];
+    if (!t.description || !t.description.trim()) {
+      showToast('error', `Task "${t.ticket}": Please fill "What I Did Today".`);
+      return;
+    }
+    if (!t.hours || t.hours === 'N/A') {
+      showToast('error', `Task "${t.ticket}": Please fill Hours Spent.`);
+      return;
+    }
   }
 
   setLoading(true);
