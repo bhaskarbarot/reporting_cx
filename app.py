@@ -1198,7 +1198,7 @@ def api_drive_status():
 def api_validate_groq():
     data  = request.json or {}
     key   = data.get('api_key', '').strip()
-    model = data.get('model', 'llama-3.3-70b-versatile').strip() or 'llama-3.3-70b-versatile'
+    model = data.get('model', 'openai/gpt-oss-120b').strip() or 'openai/gpt-oss-120b'
     if not key:
         return jsonify({'valid': False, 'error': 'No API key provided'})
     try:
