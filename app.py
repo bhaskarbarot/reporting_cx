@@ -487,7 +487,7 @@ def get_user_groq_client(email):
 
 
 def get_user_groq_model(email):
-    return 'llama-3.3-70b-versatile'
+    return 'openai/gpt-oss-120b'
 
 
 
