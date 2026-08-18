@@ -184,7 +184,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
       <div class="form-group">
         <label>Groq API Key</label>
         <input type="text" id="groq_api_key" value="{{ settings.get('groq_api_key','') }}" placeholder="gsk_...">
-        <span class="hint">Get free key at <a href="https://console.groq.com" target="_blank">console.groq.com</a> — Model: <strong>llama-3.3-70b-versatile</strong></span>
+        <span class="hint">Get free key at <a href="https://console.groq.com" target="_blank">console.groq.com</a> — Model: <strong></strong></span>
       </div>
     </div>
     <div class="test-row">
@@ -374,7 +374,7 @@ async function testGroq() {
   try {
     const res  = await fetch('/api/validate/groq', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ api_key: key, model: 'llama-3.3-70b-versatile' })
+      body: JSON.stringify({ api_key: key, model: '' })
     });
     const data = await res.json();
     setTestStatus('groqStatus', data.valid, data.valid ? data.message : data.error);
@@ -405,7 +405,7 @@ function _buildPayload() {
   const pass = document.getElementById('gmail_app_password').value.trim();
   const payload = {
     groq_api_key:      document.getElementById('groq_api_key').value.trim(),
-    groq_model:        'llama-3.3-70b-versatile',
+    groq_model:        'openai/gpt-oss-120b',
     gmail_user:        document.getElementById('gmail_user').value.trim(),
     user_name:         document.getElementById('user_name').value.trim(),
     reporting_manager: document.getElementById('reporting_manager').value.trim(),
