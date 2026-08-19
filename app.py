@@ -791,8 +791,27 @@ def build_email_html(work_date, form_data, llm_result, user_email):
 </div>"""
 
 
-# ─── LLM (GROQ → GEMINI FALLBACK) ───────────────────────────────────────────
+# ─── LLM (GROQ, WITH MODEL FALLBACK CHAIN) ──────────────────────────────────
+# GPT-OSS models occasionally emit stray reasoning/commentary text around the
+# JSON payload even with include_reasoning disabled (known Groq behavior) —
+# these attempts are tried in order until one returns parseable JSON.
+GROQ_LLM_ATTEMPTS = [
+    {'model': 'openai/gpt-oss-120b', 'reasoning_effort': 'low', 'include_reasoning': False},
+    {'model': 'openai/gpt-oss-20b',  'reasoning_effort': 'low', 'include_reasoning': False},
+    {'model': 'qwen/qwen3.6-27b'},
+]
+
+def _max_output_tokens(num_tasks):
+    """Scale the completion budget with task count, but stay under Groq's per-model
+    tokens-per-minute cap (measured at 8000 TPM on the on-demand tier) combined with
+    the prompt (~1600 base + ~100/task). Real output cost measured at ~630 tokens/task."""
+    n       = max(num_tasks, 1)
+    needed  = 650 * n + 900
+    ceiling = 7400 - (1600 + 100 * n)
+    return max(2000, min(needed, ceiling))
+
 def _parse_json(raw):
+    raw = (raw or '').strip()
     if '```' in raw:
         for part in raw.split('```'):
             s = part.strip()
@@ -800,7 +819,15 @@ def _parse_json(raw):
                 raw = s[4:].strip(); break
             elif s.startswith('{'):
                 raw = s; break
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # Defensive: strip any stray text/commentary the model added before/after
+        # the JSON object and retry once on just the {...} slice.
+        start, end = raw.find('{'), raw.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            return json.loads(raw[start:end + 1])
+        raise
 
 def call_llm(form_data, user_email):
     tasks            = form_data.get('tasks', [])
@@ -977,13 +1004,41 @@ RULES:
 - No meetings → [{{"name":"NA","duration":"NA","purpose":"NA"}}]
 - Return ONLY valid JSON, no markdown fences"""
 
-    client = get_user_groq_client(user_email)
-    resp = client.chat.completions.create(
-        model=get_user_groq_model(user_email),
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2, max_tokens=4096
-    )
-    return _parse_json(resp.choices[0].message.content.strip())
+    client      = get_user_groq_client(user_email)
+    max_tokens  = _max_output_tokens(num_tasks)
+    last_err    = None
+
+    for attempt in GROQ_LLM_ATTEMPTS:
+        kwargs = dict(
+            model=attempt['model'],
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+        )
+        if 'reasoning_effort' in attempt:
+            kwargs['reasoning_effort'] = attempt['reasoning_effort']
+        if 'include_reasoning' in attempt:
+            kwargs['include_reasoning'] = attempt['include_reasoning']
+        try:
+            resp    = client.chat.completions.create(**kwargs)
+            choice  = resp.choices[0]
+            content = (choice.message.content or '').strip()
+            if not content:
+                raise ValueError(f"Empty response from {attempt['model']}")
+            result   = _parse_json(content)
+            got_ts   = len(result.get('task_summaries', []))
+            got_msgs = len(result.get('teams_messages', []))
+            if got_ts != num_tasks or got_msgs != num_tasks:
+                raise ValueError(f"{attempt['model']} returned {got_ts}/{num_tasks} task_summaries "
+                                  f"and {got_msgs}/{num_tasks} teams_messages")
+            return result
+        except Exception as e:
+            print(f"⚠️  Groq attempt failed (model={attempt['model']}): {e}")
+            last_err = e
+            continue
+
+    raise last_err
 
 
 # ─── DATE ─────────────────────────────────────────────────────────────────────
