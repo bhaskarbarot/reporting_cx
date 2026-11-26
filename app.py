@@ -7,7 +7,8 @@ import smtplib
 import base64
 import mimetypes
 import threading
-from datetime import datetime, date, timedelta
+import re
+from datetime import datetime, date, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -54,6 +55,24 @@ DRIVE_SCOPES      = ['https://www.googleapis.com/auth/drive.file',
 DRIVE_FOLDER_NAME = 'Daily Work Updates'
 DB_SYNC_FOLDER    = 'reporting_users'
 MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024  # 3 MB raw — base64 (~1.33x) + JSON overhead stays under Vercel's 4.5MB request body cap
+RETENTION_DAYS    = 30  # history records older than this are pruned from the DB (Drive files are kept)
+APP_TZ            = timezone(timedelta(hours=5, minutes=30))  # IST — servers run in UTC
+
+def _today():
+    return datetime.now(APP_TZ).date()
+
+def _parse_date_key(key):
+    """Parse a record date key ('dd-mm-yyyy', or legacy 'yyyy-mm-dd') → date, or None."""
+    for fmt in ('%d-%m-%Y', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(key or '', fmt).date()
+        except ValueError:
+            pass
+    return None
+
+def _within_retention(date_key):
+    d = _parse_date_key(date_key)
+    return d is None or d >= _today() - timedelta(days=RETENTION_DAYS)
 
 def _get_creds_path():
     """Return path to credentials.json — from file or GOOGLE_CREDENTIALS_JSON env var."""
@@ -171,12 +190,63 @@ def _reload_db(content_str):
     tickets_table  = db.table('tickets')
     otps_table     = db.table('otps')
 
+def _fetch_remote_db(service):
+    """Download and parse Drive/reporting_users/db.json, or None if it doesn't exist."""
+    folder_id = get_or_create_folder(service, DB_SYNC_FOLDER)
+    q = f"name='db.json' and '{folder_id}' in parents and trashed=false"
+    files = service.files().list(q=q, fields='files(id)').execute().get('files', [])
+    if not files:
+        return None
+    raw  = service.files().get_media(fileId=files[0]['id']).execute()
+    text = raw.decode('utf-8') if isinstance(raw, bytes) else raw
+    return json.loads(text)
+
+def _is_newer(a, b):
+    """True if ISO timestamp a is later than b (non-ISO values never win)."""
+    return bool(a) and 'T' in str(a) and (not b or 'T' not in str(b) or str(a) > str(b))
+
+def _merge_remote_records(remote):
+    """Merge history records + tickets from the Drive DB into the local DB.
+    Each serverless instance holds its own copy of db.json; without this merge an
+    instance with a stale copy overwrites reports saved by another instance."""
+    if not remote:
+        return
+    R = Query()
+    for rec in (remote.get('records') or {}).values():
+        user, dkey = rec.get('user'), rec.get('date')
+        if not user or not dkey or not _within_retention(dkey):
+            continue
+        cond  = (R.user == user) & (R.date == dkey)
+        local = records_table.search(cond)
+        if not local:
+            records_table.insert(rec)
+        elif _is_newer(rec.get('saved_at'), local[0].get('saved_at')):
+            records_table.update(rec, cond)
+    T = Query()
+    for t in (remote.get('tickets') or {}).values():
+        name, user = t.get('name'), t.get('user')
+        if name and user and not tickets_table.search((T.name == name) & (T.user == user)):
+            tickets_table.insert(t)
+
+def prune_old_records():
+    """Drop history records older than RETENTION_DAYS to keep db.json small."""
+    old_ids = [r.doc_id for r in records_table.all() if not _within_retention(r.get('date'))]
+    if old_ids:
+        records_table.remove(doc_ids=old_ids)
+        print(f"🧹  Pruned {len(old_ids)} history record(s) older than {RETENTION_DAYS} days")
+
 def sync_db_to_drive():
-    """Push local db.json → Drive/reporting_users/ after every write."""
+    """Push local db.json → Drive/reporting_users/ after every write.
+    Merges the current Drive copy first so records from other instances aren't lost."""
     try:
         service = _get_admin_drive_service_safe()
         if not service:
             return
+        try:
+            _merge_remote_records(_fetch_remote_db(service))
+        except Exception as e:
+            print(f"⚠️  Could not merge Drive DB before push: {e}")
+        prune_old_records()
         folder_id = get_or_create_folder(service, DB_SYNC_FOLDER)
         with open(DB_PATH, 'rb') as f:
             upload_to_drive(service, folder_id, 'db.json', f.read(), 'application/json')
@@ -583,13 +653,13 @@ def rebuild_history_from_drive(email):
     # List all .txt files in Teams folder
     teams_files = service.files().list(
         q=f"'{teams_fid}' in parents and name contains '.txt' and trashed=false",
-        fields='files(id,name,webViewLink)'
+        fields='files(id,name,modifiedTime)', pageSize=1000
     ).execute().get('files', [])
 
     # List all .docx files in Mail folder — build a name→id/url map
     mail_files = service.files().list(
         q=f"'{mail_fid}' in parents and name contains '.docx' and trashed=false",
-        fields='files(id,name,webViewLink)'
+        fields='files(id,name)', pageSize=1000
     ).execute().get('files', [])
     mail_map = {f['name'].replace('.docx', ''): f for f in mail_files}
 
@@ -597,16 +667,22 @@ def rebuild_history_from_drive(email):
     rebuilt = 0
     for tf in teams_files:
         date_key = tf['name'].replace('.txt', '')
+        d = _parse_date_key(date_key)
+        # Only restore reports inside the retention window
+        if d is None or not _within_retention(date_key):
+            continue
         # Skip if already indexed
         if records_table.search((R.date == date_key) & (R.user == email)):
             continue
-        mf       = mail_map.get(date_key, {})
-        # date_key like 2026-07-01 → display date 01/07/2026
+        mf           = mail_map.get(date_key, {})
+        display_date = d.strftime('%d/%m/%Y')
+        # Recover ticket names from the "Project/Client Name - X" lines of the Teams text
+        tickets = []
         try:
-            parts        = date_key.split('-')
-            display_date = f"{parts[2]}/{parts[1]}/{parts[0]}"
-        except Exception:
-            display_date = date_key
+            text    = fetch_teams_from_drive(email, tf['id'])
+            tickets = [m.strip() for m in re.findall(r'^\s*Project/Client Name\s*-\s*(.+)$', text, re.M)]
+        except Exception as e:
+            print(f"⚠️  Could not read {tf['name']} for ticket names: {e}")
         record = {
             'user':            email,
             'date':            date_key,
@@ -615,9 +691,9 @@ def rebuild_history_from_drive(email):
             'mail_drive_id':   mf.get('id', ''),
             'teams_drive_url': f"https://drive.google.com/file/d/{tf['id']}/view",
             'mail_drive_url':  f"https://drive.google.com/file/d/{mf['id']}/view" if mf.get('id') else '',
-            'task_count':      0,
-            'tickets':         [],
-            'saved_at':        date_key,
+            'task_count':      len(tickets),
+            'tickets':         tickets,
+            'saved_at':        tf.get('modifiedTime', ''),
         }
         records_table.insert(record)
         rebuilt += 1
@@ -1043,10 +1119,8 @@ RULES:
 
 # ─── DATE ─────────────────────────────────────────────────────────────────────
 def get_working_date():
-    today = date.today()
-    if today.weekday() == 5:  today -= timedelta(days=1)
-    elif today.weekday() == 6: today -= timedelta(days=2)
-    return today.strftime('%d/%m/%Y')
+    """Today's date (IST), including Saturday and Sunday."""
+    return _today().strftime('%d/%m/%Y')
 
 
 # ─── PAGE ROUTES ─────────────────────────────────────────────────────────────
@@ -1510,18 +1584,17 @@ def api_send_email():
 @login_required_api
 def api_history():
     email = get_current_user()
-    R     = Query()
-    records = records_table.search(R.user == email)
-
-    def _date_sort_key(rec):
-        d = rec.get('date', '')
-        parts = d.replace('-', '/').split('/')
-        if len(parts) == 3:
-            return (parts[0] + parts[1] + parts[2]) if len(parts[0]) == 4 else (parts[2] + parts[1] + parts[0])
-        return d
-
-    records.sort(key=_date_sort_key, reverse=True)
-    return jsonify({'records': records})
+    # Pull records saved by other server instances so recent reports always show
+    service = _get_admin_drive_service_safe()
+    if service:
+        try:
+            _merge_remote_records(_fetch_remote_db(service))
+        except Exception as e:
+            print(f"⚠️  History: could not merge Drive DB: {e}")
+    R       = Query()
+    records = [r for r in records_table.search(R.user == email) if _within_retention(r.get('date'))]
+    records.sort(key=lambda r: _parse_date_key(r.get('date')) or date.min, reverse=True)
+    return jsonify({'records': records, 'retention_days': RETENTION_DAYS})
 
 @app.route('/api/history/rebuild', methods=['POST'])
 @login_required_api

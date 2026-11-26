@@ -595,7 +595,7 @@ body {
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Working Date (auto - skips weekends)</label>
+          <label>Working Date (auto - today)</label>
           <input type="text" id="workDate" readonly placeholder="Loading...">
         </div>
         <div class="form-group">
@@ -715,7 +715,7 @@ body {
   <div id="historyTab" style="display:none;">
     <div class="card">
       <div class="card-header">
-        <span class="card-title">📅 Work Update History</span>
+        <span class="card-title">📅 Work Update History <span style="font-size:0.75rem;font-weight:500;color:var(--muted);">(last 30 days)</span></span>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-outline btn-sm" onclick="loadHistory()">🔄 Refresh</button>
           <button class="btn btn-outline btn-sm" id="rebuildBtn" onclick="rebuildHistory()" title="Restore old reports from Google Drive">☁️ Restore from Drive</button>
@@ -1322,7 +1322,7 @@ async function approveAndSend() {
 
   // Save first
   try {
-    await fetch('/api/save', {
+    const saveRes = await fetch('/api/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1332,7 +1332,11 @@ async function approveAndSend() {
         attachment: buildAttachmentPayload()
       })
     });
-  } catch(e) {}
+    const saveData = await saveRes.json();
+    if (!saveData.success) showToast('warning', '⚠️ Not saved to history: ' + (saveData.error || 'unknown error'));
+  } catch(e) {
+    showToast('warning', '⚠️ Not saved to history: ' + e.message);
+  }
 
   // Send email
   try {
